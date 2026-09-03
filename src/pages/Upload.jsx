@@ -35,8 +35,8 @@ export default function Upload() {
           <h1 style={{ fontSize: 30 }}>Cargar corte semanal</h1>
         </div>
         <div className="navlinks">
-          <Link to="/">Dashboard</Link>
-          <Link to="/upload" className="active">Cargar</Link>
+          <Link to="/vacaciones">Dashboard</Link>
+          <Link to="/vacaciones/upload" className="active">Cargar</Link>
           <button className="btn" onClick={() => supabase.auth.signOut()}>Salir</button>
         </div>
       </div>
@@ -72,7 +72,7 @@ export default function Upload() {
                 {status.result.nAgenda} períodos agendados
                 {status.result.nSinCedula > 0 && <> · {status.result.nSinCedula} sin cédula (pendiente de verificar)</>}
               </div>
-              <Link to="/" className="btn btn-primary">Ver dashboard →</Link>
+              <Link to="/vacaciones" className="btn btn-primary">Ver dashboard →</Link>
             </div>
           )}
           {!status.done && !status.error && (

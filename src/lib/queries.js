@@ -18,7 +18,7 @@ export async function getCorteData(fechaCorte) {
     .select(`
       saldo_actual, dias_tomados, saldo_proyectado_diciembre, diferencia,
       colaborador_id,
-      vac_colaboradores ( id, nombre, cedula, verificado, cargo, unidad_organizativa, bp_responsable )
+      vac_colaboradores ( id, nombre, cedula, verificado, cargo, unidad_organizativa, bp_responsable, jefe_directo, ciudad, region )
     `)
     .eq('fecha_corte', fechaCorte)
   if (error) throw error
