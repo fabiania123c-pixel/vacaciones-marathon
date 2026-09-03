@@ -44,8 +44,6 @@ export default function Dashboard() {
   const [liderFilter, setLiderFilter] = useState('')
   const [regionFilter, setRegionFilter] = useState('')
   const [editing, setEditing] = useState(null)
-  const [editingSeguimiento, setEditingSeguimiento] = useState(null)
-  const [presetEstado, setPresetEstado] = useState(null)
   const [sortField, setSortField] = useState('saldo')
   const [sortDir, setSortDir] = useState('desc')
 
@@ -138,11 +136,6 @@ export default function Dashboard() {
     else { setSortField(field); setSortDir('desc') }
   }
 
-  function openSeguimientoConEstado(persona, estado) {
-    setPresetEstado(estado)
-    setEditingSeguimiento(persona)
-  }
-
   async function saveSeguimientoField(persona, patch) {
     const prev = seguimiento[persona.id] || {}
     const next = { ...prev, colaborador_id: persona.id, ...patch }
@@ -173,7 +166,6 @@ export default function Dashboard() {
   }
 
   const pctTomado = ratio ? Math.round(ratio.pct_tomado * 1000) / 10 : null
-  const pctPendiente = ratio ? Math.round(ratio.pct_pendiente * 1000) / 10 : null
   const proyeccionDelta = kpis.saldoTotal - kpis.proyectadoDic
   const proyeccionPct = kpis.saldoTotal ? Math.round((proyeccionDelta / kpis.saldoTotal) * 100) : 0
 
@@ -267,11 +259,10 @@ export default function Dashboard() {
                 <div className="hero-days">{ratio.dias_tomados.toLocaleString()} de {ratio.base_asignado.toLocaleString()} días asignados</div>
                 <div className="hero-source global">Cifra global de la empresa — no cambia con los filtros (viene tal cual de tu Excel)</div>
               </div>
-              <div className="hero-card pending">
-                <div className="hero-label">% Vacaciones pendientes</div>
-                <div className="hero-pct">{pctPendiente}%</div>
-                <div className="hero-days">{Math.round(ratio.base_asignado - ratio.dias_tomados).toLocaleString()} días sin tomar</div>
-                <div className="hero-source global">Cifra global — mismo motivo</div>
+              <div className="hero-card">
+                <div className="hero-label">Días tomados</div>
+                <div className="hero-pct" style={{ color: 'var(--text)' }}>{kpis.tomadosTotal.toLocaleString()}</div>
+                <div className="hero-days">este corte</div>
               </div>
             </div>
           )}
@@ -281,7 +272,6 @@ export default function Dashboard() {
             <div className="kpi warn"><div className="label">Riesgo alto (&gt;15)</div><div className="value">{kpis.riesgoAlto}</div><div className="ctx">de {kpis.total} personas</div></div>
             <div className="kpi crit"><div className="label">Riesgo crítico (&gt;30)</div><div className="value">{kpis.riesgoCritico}</div><div className="ctx">{kpis.total ? Math.round(kpis.riesgoCritico / kpis.total * 100) : 0}% del total</div></div>
             <div className="kpi action"><div className="label">Sin agenda + riesgo</div><div className="value">{kpis.sinAgendaRiesgo}</div><div className="ctx">nada programado</div></div>
-            <div className="kpi"><div className="label">Días tomados</div><div className="value">{kpis.tomadosTotal.toLocaleString()}</div><div className="ctx">este corte</div></div>
             <div className="kpi"><div className="label">Colaboradores</div><div className="value">{kpis.total}</div><div className="ctx">en este filtro</div></div>
           </div>
 

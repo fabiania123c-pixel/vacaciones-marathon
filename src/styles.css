@@ -42,7 +42,7 @@ select.filter-select option{background:var(--panel2); color:var(--text);}
 .hero-source{font-size:10.5px; color:var(--text-mute); margin-top:10px;}
 .hero-source.global{color:var(--text-dim); font-style:italic;}
 
-.grid-kpi{display:grid; grid-template-columns:repeat(6,1fr); gap:14px; margin-bottom:32px;}
+.grid-kpi{display:grid; grid-template-columns:repeat(5,1fr); gap:14px; margin-bottom:32px;}
 .kpi{background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:18px 16px;}
 .kpi .label{font-size:11px; color:var(--text-mute); text-transform:uppercase; letter-spacing:1px; margin-bottom:10px;}
 .kpi .value{font-family:'Bebas Neue',sans-serif; font-size:34px; letter-spacing:.5px;}
