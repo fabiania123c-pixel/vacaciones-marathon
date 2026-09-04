@@ -1,9 +1,11 @@
-import { useState } from 'react'
+import { useState, createElement } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 
 const ITEMS = [
-  { label: 'Vacaciones', icon: '📅', to: '/vacaciones', active: true },
-  { label: 'Gasto / Venta', icon: '💰', to: null, active: false },
+  { label: 'Vacaciones', icon: '📅', kind: 'internal', to: '/vacaciones' },
+  { label: 'Gasto / Venta', icon: '💰', kind: 'soon' },
+  { label: 'Únete a Nuestro Equipo', icon: '🤝', kind: 'external', href: 'https://uneteanuestroequipo.ec.aseyco.com/login' },
+  { label: 'Dashboard de Control', icon: '📊', kind: 'external', href: 'https://us-east-1.quicksight.aws.amazon.com/sn/account/marathonsports/dashboards/cbd0544d-43c8-4595-952f-d965c41cbb05/views/d98fb1da-2469-4275-ba9a-6a6a78643b94' },
 ]
 
 export default function Sidebar() {
@@ -14,7 +16,7 @@ export default function Sidebar() {
   function toggleCollapse() {
     const next = !collapsed
     setCollapsed(next)
-    if (next) navigate('/') // al colapsar, vuelve a la pantalla en blanco
+    if (next) navigate('/')
   }
 
   return (
@@ -26,17 +28,44 @@ export default function Sidebar() {
       </div>
       <nav className="sidebar-nav">
         {ITEMS.map((item) => {
-          const isCurrent = item.active && location.pathname.startsWith(item.to)
-          if (!item.active) {
+          if (item.kind === 'soon') {
             return (
               <div key={item.label} className="sidebar-item disabled" title={item.label}>
                 <span className="sidebar-icon">{item.icon}</span>
-                {!collapsed && <>{item.label}<span className="sidebar-soon">Próximamente</span></>}
+                {!collapsed && (
+                  <>
+                    {item.label}
+                    <span className="sidebar-soon">Próximamente</span>
+                  </>
+                )}
               </div>
             )
           }
+
+          if (item.kind === 'external') {
+            return createElement(
+              'a',
+              {
+                key: item.label,
+                href: item.href,
+                target: '_blank',
+                rel: 'noopener noreferrer',
+                className: 'sidebar-item',
+                title: item.label,
+              },
+              <span key="icon" className="sidebar-icon">{item.icon}</span>,
+              !collapsed ? item.label : null
+            )
+          }
+
+          const isCurrent = location.pathname.startsWith(item.to)
           return (
-            <Link key={item.label} to={item.to} className={`sidebar-item${isCurrent ? ' active' : ''}`} title={item.label}>
+            <Link
+              key={item.label}
+              to={item.to}
+              className={`sidebar-item${isCurrent ? ' active' : ''}`}
+              title={item.label}
+            >
               <span className="sidebar-icon">{item.icon}</span>
               {!collapsed && item.label}
             </Link>
