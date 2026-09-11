@@ -251,21 +251,27 @@ export default function Dashboard() {
 
       {tab === 'resumen' && (
         <>
-          {ratio && (
-            <div className="hero-ratio">
+          <div className="hero-ratio">
+            {ratio ? (
               <div className="hero-card">
                 <div className="hero-label">% Vacaciones tomadas</div>
                 <div className="hero-pct">{pctTomado}%</div>
                 <div className="hero-days">{ratio.dias_tomados.toLocaleString()} de {ratio.base_asignado.toLocaleString()} días asignados</div>
                 <div className="hero-source global">Cifra global de la empresa — no cambia con los filtros (viene tal cual de tu Excel)</div>
               </div>
+            ) : (
               <div className="hero-card">
-                <div className="hero-label">Días tomados</div>
-                <div className="hero-pct" style={{ color: 'var(--text)' }}>{kpis.tomadosTotal.toLocaleString()}</div>
-                <div className="hero-days">este corte</div>
+                <div className="hero-label">% Vacaciones tomadas</div>
+                <div className="hero-pct" style={{ color: 'var(--text-mute)', fontSize: 28 }}>Sin dato este corte</div>
+                <div className="hero-days">El Excel de este mes no trajo el bloque de ratio</div>
               </div>
+            )}
+            <div className="hero-card">
+              <div className="hero-label">Días tomados</div>
+              <div className="hero-pct" style={{ color: 'var(--text)' }}>{kpis.tomadosTotal.toLocaleString()}</div>
+              <div className="hero-days">este corte</div>
             </div>
-          )}
+          </div>
 
           <div className="grid-kpi">
             <div className="kpi crit"><div className="label">Saldo acumulado</div><div className="value">{kpis.saldoTotal.toLocaleString()}</div><div className="ctx">días sin tomar</div></div>
