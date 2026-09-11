@@ -1,10 +1,13 @@
 import { supabase } from '../supabaseClient'
 
+// Muestra el corte de la carga MÁS RECIENTE (por cuándo se subió el archivo),
+// no el de fecha_corte más alta. Así el dashboard siempre refleja lo último
+// que subiste, sin importar qué fecha traiga ese Excel.
 export async function getLatestCorte() {
   const { data, error } = await supabase
-    .from('vac_snapshots')
+    .from('vac_uploads')
     .select('fecha_corte')
-    .order('fecha_corte', { ascending: false })
+    .order('created_at', { ascending: false })
     .limit(1)
   if (error) throw error
   return data?.[0]?.fecha_corte || null
