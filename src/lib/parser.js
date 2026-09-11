@@ -13,9 +13,6 @@ const MESES = {
   noviembre: 11, diciembre: 12,
 }
 
-// Builds { normalizedName -> cedula } from a lookup sheet like "Hoja1"
-// (col A = nombre, col C = cedula). Used to correct/complete cedulas —
-// never trust a cedula column embedded in the main sheet, only this lookup.
 function buildCedulaLookup(wb) {
   const sheetNames = wb.SheetNames.filter((n) => /hoja/i.test(n))
   const lookup = {}
@@ -86,8 +83,21 @@ function parseCorteSheet(sheetName, ws, lookup, lookupSorted) {
     if (norm(h) === 'DESDE' && norm(headers[i + 1]) === 'HASTA') blocks.push([i, i + 1, i + 2])
   })
 
+  // La fecha del corte se toma preferentemente del encabezado "Días tomados
+  // DD Mes AAAA" porque es el que más confiablemente actualizan cada semana
+  // (trae día exacto). Si no está, cae a "Saldo Vacaciones Mes AAAA" (solo mes).
   let corteDate = null
-  if (saldoLabel) {
+  const diasTomadosLabel = col.diasTomados !== undefined ? headers[col.diasTomados] : null
+  if (diasTomadosLabel) {
+    const nl = norm(diasTomadosLabel)
+    const dm = nl.match(/(\d{1,2})\s+([A-Z]+)\s+(20\d{2})/)
+    if (dm) {
+      const [, dia, mesTxt, anio] = dm
+      const mesNum = MESES[mesTxt.toLowerCase()]
+      if (mesNum) corteDate = `${anio}-${String(mesNum).padStart(2, '0')}-${dia.padStart(2, '0')}`
+    }
+  }
+  if (!corteDate && saldoLabel) {
     const nl = norm(saldoLabel)
     for (const [mes, num] of Object.entries(MESES)) {
       if (nl.includes(mes.toUpperCase())) {
@@ -108,8 +118,6 @@ function parseCorteSheet(sheetName, ws, lookup, lookupSorted) {
     const saldo = (col.saldoActual !== undefined && typeof row[col.saldoActual] === 'number') ? row[col.saldoActual] : 0
     const tomados = (col.diasTomados !== undefined && typeof row[col.diasTomados] === 'number') ? row[col.diasTomados] : 0
 
-    // Consolidate accidental duplicate rows (same person split across
-    // multiple rows) — keep the row that actually has a populated saldo.
     if (!employees[key] || (saldo && !employees[key].saldo)) {
       employees[key] = {
         nombre: name.toString().trim(),
@@ -150,17 +158,15 @@ function parseRatioBlock(ws) {
         base = rows[r + 1] ? rows[r + 1][c + 2] : null
         tomados = rows[r + 2] ? rows[r + 2][c + 2] : null
       }
-      if (v.includes('RATIO DIAS PENDIENTES')) {
-        pctPendiente = rows[r + 1] ? rows[r + 1][c + 2] : null
-      }
     }
   }
-  if (base && tomados) pctTomado = tomados / base
-  return base ? { base, tomados, pctTomado, pctPendiente } : null
+  if (base && tomados) {
+    pctTomado = tomados / base
+    pctPendiente = 1 - pctTomado
+  }
+  return base && tomados ? { base, tomados, pctTomado, pctPendiente } : null
 }
 
-// Main entry point: reads a File, returns structured data ready for upload.
-// Picks the most recent valid "corte" sheet (by parsed date, else last sheet).
 export async function parseVacacionesFile(file) {
   const buf = await file.arrayBuffer()
   const wb = XLSX.read(buf, { type: 'array', cellDates: true })
