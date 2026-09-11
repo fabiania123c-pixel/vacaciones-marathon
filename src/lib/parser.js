@@ -130,6 +130,7 @@ function parseCorteSheet(sheetName, ws, lookup, lookupSorted) {
         tomados,
         saldoProyectado: col.saldoProyectado !== undefined ? row[col.saldoProyectado] : null,
         diferencia: col.diferencia !== undefined ? row[col.diferencia] : null,
+        totalProgramado: (col.totalProgramado !== undefined && typeof row[col.totalProgramado] === 'number') ? row[col.totalProgramado] : 0,
         schedule: [],
       }
     }
@@ -144,27 +145,6 @@ function parseCorteSheet(sheetName, ws, lookup, lookupSorted) {
   }
 
   return { sheetName, corteDate, employees: Object.values(employees) }
-}
-
-function parseRatioBlock(ws) {
-  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null })
-  let base = null, tomados = null, pctTomado = null, pctPendiente = null
-  for (let r = 0; r < rows.length; r++) {
-    const row = rows[r]
-    if (!row) continue
-    for (let c = 0; c < row.length; c++) {
-      const v = norm(row[c])
-      if (v.includes('RATIO DIA TOMADOS')) {
-        base = rows[r + 1] ? rows[r + 1][c + 2] : null
-        tomados = rows[r + 2] ? rows[r + 2][c + 2] : null
-      }
-    }
-  }
-  if (base && tomados) {
-    pctTomado = tomados / base
-    pctPendiente = 1 - pctTomado
-  }
-  return base && tomados ? { base, tomados, pctTomado, pctPendiente } : null
 }
 
 export async function parseVacacionesFile(file) {
@@ -187,7 +167,18 @@ export async function parseVacacionesFile(file) {
     return 0
   })
   const latest = cortes[cortes.length - 1]
-  const ratio = parseRatioBlock(wb.Sheets[latest.sheetName])
+
+  // El ratio se calcula con la misma formula que ya usa tu equipo
+  // (saldo + tomados - total programado = dias asignados), a partir de las
+  // columnas por persona (siempre vienen), no de la tabla resumen del final
+  // de la hoja (a veces se pierde al preparar el archivo).
+  const sumSaldo = latest.employees.reduce((s, e) => s + (e.saldo || 0), 0)
+  const sumTomados = latest.employees.reduce((s, e) => s + (e.tomados || 0), 0)
+  const sumProgramado = latest.employees.reduce((s, e) => s + (e.totalProgramado || 0), 0)
+  const base = sumSaldo + sumTomados - sumProgramado
+  const ratio = base > 0
+    ? { base, tomados: sumTomados, pctTomado: sumTomados / base, pctPendiente: 1 - sumTomados / base }
+    : null
 
   return {
     fechaCorte: latest.corteDate || new Date().toISOString().slice(0, 10),
