@@ -83,9 +83,6 @@ function parseCorteSheet(sheetName, ws, lookup, lookupSorted) {
     if (norm(h) === 'DESDE' && norm(headers[i + 1]) === 'HASTA') blocks.push([i, i + 1, i + 2])
   })
 
-  // La fecha del corte se toma preferentemente del encabezado "Días tomados
-  // DD Mes AAAA" porque es el que más confiablemente actualizan cada semana
-  // (trae día exacto). Si no está, cae a "Saldo Vacaciones Mes AAAA" (solo mes).
   let corteDate = null
   const diasTomadosLabel = col.diasTomados !== undefined ? headers[col.diasTomados] : null
   if (diasTomadosLabel) {
@@ -130,7 +127,6 @@ function parseCorteSheet(sheetName, ws, lookup, lookupSorted) {
         tomados,
         saldoProyectado: col.saldoProyectado !== undefined ? row[col.saldoProyectado] : null,
         diferencia: col.diferencia !== undefined ? row[col.diferencia] : null,
-        totalProgramado: (col.totalProgramado !== undefined && typeof row[col.totalProgramado] === 'number') ? row[col.totalProgramado] : 0,
         schedule: [],
       }
     }
@@ -145,6 +141,28 @@ function parseCorteSheet(sheetName, ws, lookup, lookupSorted) {
   }
 
   return { sheetName, corteDate, employees: Object.values(employees) }
+}
+
+// Lee el % directo de la celda "% VACACIONES TOMADAS" que trae el Excel
+// (2 columnas a la derecha de la etiqueta, misma fila). No lo recalculamos
+// con ninguna fórmula propia — es la que ya valida tu equipo.
+function parseRatioBlock(ws) {
+  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null })
+  let pctTomado = null
+  for (let r = 0; r < rows.length; r++) {
+    const row = rows[r]
+    if (!row) continue
+    for (let c = 0; c < row.length; c++) {
+      const v = norm(row[c])
+      if (v.includes('% VACACIONES TOMADAS')) {
+        for (let cc = c + 1; cc < row.length; cc++) {
+          if (typeof row[cc] === 'number') { pctTomado = row[cc] / 100; break }
+        }
+      }
+    }
+  }
+  if (pctTomado == null) return null
+  return { pctTomado, pctPendiente: 1 - pctTomado }
 }
 
 export async function parseVacacionesFile(file) {
@@ -167,18 +185,7 @@ export async function parseVacacionesFile(file) {
     return 0
   })
   const latest = cortes[cortes.length - 1]
-
-  // El ratio se calcula con la misma formula que ya usa tu equipo
-  // (saldo + tomados - total programado = dias asignados), a partir de las
-  // columnas por persona (siempre vienen), no de la tabla resumen del final
-  // de la hoja (a veces se pierde al preparar el archivo).
-  const sumSaldo = latest.employees.reduce((s, e) => s + (e.saldo || 0), 0)
-  const sumTomados = latest.employees.reduce((s, e) => s + (e.tomados || 0), 0)
-  const sumProgramado = latest.employees.reduce((s, e) => s + (e.totalProgramado || 0), 0)
-  const base = sumSaldo + sumTomados - sumProgramado
-  const ratio = base > 0
-    ? { base, tomados: sumTomados, pctTomado: sumTomados / base, pctPendiente: 1 - sumTomados / base }
-    : null
+  const ratio = parseRatioBlock(wb.Sheets[latest.sheetName])
 
   return {
     fechaCorte: latest.corteDate || new Date().toISOString().slice(0, 10),

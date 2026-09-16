@@ -95,14 +95,15 @@ export async function uploadParsedData(parsed, userId, onProgress) {
     if (error) throw new Error('Error guardando agenda: ' + error.message)
   }
 
-  // 5) Ratio oficial (solo si el Excel lo trae explícito)
-  if (ratio && ratio.base) {
+  // 5) Ratio oficial: se lee tal cual de la celda "% VACACIONES TOMADAS" del
+  // Excel — no lo recalculamos con ninguna fórmula propia.
+  if (ratio && ratio.pctTomado != null) {
     report('Guardando ratio oficial…')
     await supabase.from('vac_ratios').upsert({
       fecha_corte: fechaCorte,
       pais: 'EC',
-      base_asignado: ratio.base,
-      dias_tomados: ratio.tomados,
+      base_asignado: null,
+      dias_tomados: null,
       pct_tomado: ratio.pctTomado,
       pct_pendiente: ratio.pctPendiente,
     }, { onConflict: 'fecha_corte,pais' })

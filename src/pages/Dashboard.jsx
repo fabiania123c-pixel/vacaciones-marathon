@@ -166,6 +166,7 @@ export default function Dashboard() {
   }
 
   const pctTomado = ratio ? Math.round(ratio.pct_tomado * 1000) / 10 : null
+  const pctPendiente = ratio ? Math.round(ratio.pct_pendiente * 1000) / 10 : null
   const proyeccionDelta = kpis.saldoTotal - kpis.proyectadoDic
   const proyeccionPct = kpis.saldoTotal ? Math.round((proyeccionDelta / kpis.saldoTotal) * 100) : 0
 
@@ -256,7 +257,7 @@ export default function Dashboard() {
               <div className="hero-card">
                 <div className="hero-label">% Vacaciones tomadas</div>
                 <div className="hero-pct">{pctTomado}%</div>
-                <div className="hero-days">{ratio.dias_tomados.toLocaleString()} de {ratio.base_asignado.toLocaleString()} días asignados</div>
+                <div className="hero-days">{kpis.tomadosTotal.toLocaleString()} días tomados este corte</div>
                 <div className="hero-source global">Cifra global de la empresa — no cambia con los filtros (viene tal cual de tu Excel)</div>
               </div>
             ) : (
