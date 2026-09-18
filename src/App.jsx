@@ -5,6 +5,8 @@ import Login from './pages/Login'
 import Home from './pages/Home'
 import Upload from './pages/Upload'
 import Dashboard from './pages/Dashboard'
+import GastoVentaDashboard from './pages/GastoVentaDashboard'
+import GastoVentaUpload from './pages/GastoVentaUpload'
 import Sidebar from './components/Sidebar'
 
 export default function App() {
@@ -28,6 +30,8 @@ export default function App() {
             <Route path="/" element={<Home />} />
             <Route path="/vacaciones" element={<Dashboard />} />
             <Route path="/vacaciones/upload" element={<Upload />} />
+            <Route path="/gasto-venta" element={<GastoVentaDashboard />} />
+            <Route path="/gasto-venta/upload" element={<GastoVentaUpload />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </div>

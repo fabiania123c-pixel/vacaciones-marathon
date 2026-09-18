@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 
 const ITEMS = [
   { label: 'Vacaciones', icon: '📅', kind: 'internal', to: '/vacaciones' },
-  { label: 'Gasto / Venta', icon: '💰', kind: 'soon' },
+  { label: 'Gasto / Venta', icon: '💰', kind: 'internal', to: '/gasto-venta' },
   { label: 'Únete a Nuestro Equipo', icon: '🤝', kind: 'external', href: 'https://uneteanuestroequipo.ec.aseyco.com/login' },
   { label: 'Dashboard de Control', icon: '📊', kind: 'external', href: 'https://us-east-1.quicksight.aws.amazon.com/sn/account/marathonsports/dashboards/cbd0544d-43c8-4595-952f-d965c41cbb05/views/d98fb1da-2469-4275-ba9a-6a6a78643b94' },
 ]
