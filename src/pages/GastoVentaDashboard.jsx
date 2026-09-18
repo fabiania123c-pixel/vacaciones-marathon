@@ -3,8 +3,9 @@ import { Link } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 import * as XLSX from 'xlsx'
 import {
-  getLatestPeriodo, getResumenPeriodo, getEvolucionMensual, getRubroBreakdown,
+  getLatestPeriodo, getResumenPeriodo, getEvolucionDetalle, getRubroBreakdown,
   buildKpis, buildRanking, buildRubroTotales, buildProvinciaRanking,
+  buildEvolucionSerie, buildFichaTienda,
 } from '../lib/queriesGastoVenta'
 import { LineChart, Line, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid } from 'recharts'
 
@@ -30,22 +31,23 @@ export default function GastoVentaDashboard() {
   const [tab, setTab] = useState('resumen')
   const [periodo, setPeriodo] = useState(null)
   const [resumen, setResumen] = useState([])
-  const [evolucion, setEvolucion] = useState([])
+  const [evolucionDetalle, setEvolucionDetalle] = useState([])
   const [rubroRows, setRubroRows] = useState([])
   const [search, setSearch] = useState('')
   const [provinciaFilter, setProvinciaFilter] = useState('')
   const [tipoFilter, setTipoFilter] = useState('')
+  const [tiendaFilter, setTiendaFilter] = useState('')
 
   async function load() {
     setLoading(true)
     const p = await getLatestPeriodo()
     if (!p) { setLoading(false); return }
-    const [res, evo, rub] = await Promise.all([
-      getResumenPeriodo(p), getEvolucionMensual(), getRubroBreakdown(p),
+    const [res, evoDet, rub] = await Promise.all([
+      getResumenPeriodo(p), getEvolucionDetalle(), getRubroBreakdown(p),
     ])
     setPeriodo(p)
     setResumen(res)
-    setEvolucion(evo)
+    setEvolucionDetalle(evoDet)
     setRubroRows(rub)
     setLoading(false)
   }
@@ -56,21 +58,42 @@ export default function GastoVentaDashboard() {
     () => [...new Set(resumen.map((r) => r.provincia).filter(Boolean))].sort(),
     [resumen],
   )
+  const tiendaOptions = useMemo(
+    () => resumen.map((r) => r.nombre).filter(Boolean).sort(),
+    [resumen],
+  )
 
   const filteredResumen = useMemo(() => {
     return resumen.filter((r) => {
+      if (tiendaFilter && r.nombre !== tiendaFilter) return false
       if (provinciaFilter && r.provincia !== provinciaFilter) return false
       if (tipoFilter && r.tipo !== tipoFilter) return false
       return true
     })
-  }, [resumen, provinciaFilter, tipoFilter])
+  }, [resumen, tiendaFilter, provinciaFilter, tipoFilter])
 
   const kpis = useMemo(() => buildKpis(filteredResumen), [filteredResumen])
   const ranking = useMemo(() => buildRanking(filteredResumen, 12), [filteredResumen])
-  const rubroTotales = useMemo(() => buildRubroTotales(rubroRows), [rubroRows])
+  const evolucion = useMemo(() => buildEvolucionSerie(evolucionDetalle, tiendaFilter), [evolucionDetalle, tiendaFilter])
+
+  const rubroRowsFiltrado = useMemo(() => {
+    return rubroRows.filter((r) => {
+      if (tiendaFilter && r.tienda !== tiendaFilter) return false
+      if (provinciaFilter && r.provincia !== provinciaFilter) return false
+      if (tipoFilter && r.tipo !== tipoFilter) return false
+      return true
+    })
+  }, [rubroRows, tiendaFilter, provinciaFilter, tipoFilter])
+  const rubroTotales = useMemo(() => buildRubroTotales(rubroRowsFiltrado), [rubroRowsFiltrado])
   const maxRubro = rubroTotales[0]?.importe || 1
   const provinciaRanking = useMemo(() => buildProvinciaRanking(resumen, 8), [resumen])
   const maxProvincia = provinciaRanking[0]?.gasto || 1
+
+  const ficha = useMemo(() => {
+    if (!tiendaFilter) return null
+    const tiendaRow = resumen.find((r) => r.nombre === tiendaFilter)
+    return buildFichaTienda(tiendaRow, rubroRowsFiltrado)
+  }, [tiendaFilter, resumen, rubroRowsFiltrado])
 
   const tableRows = useMemo(() => {
     return filteredResumen.filter((r) => {
@@ -107,7 +130,9 @@ export default function GastoVentaDashboard() {
       <div className="topnav">
         <div>
           <div className="eyebrow">Gestión de personas · Gasto vs Venta</div>
-          <h1 style={{ fontSize: 34 }}>Gasto de Personal vs Venta — Tiendas Ecuador</h1>
+          <h1 style={{ fontSize: 34 }}>
+            {tiendaFilter ? tiendaFilter : 'Gasto de Personal vs Venta — Tiendas Ecuador'}
+          </h1>
         </div>
         <div className="navlinks">
           <Link to="/gasto-venta" className="active">Dashboard</Link>
@@ -117,11 +142,18 @@ export default function GastoVentaDashboard() {
       </div>
       <div className="sub">
         Período <b>{fmtPeriodo(periodo)}</b> · mostrando <b>{filteredResumen.length}</b> de {resumen.length} tiendas
-        {(provinciaFilter || tipoFilter) && <> — filtros activos</>}
+        {(provinciaFilter || tipoFilter || tiendaFilter) && <> — filtros activos</>}
       </div>
 
       <div className="filters">
         <div className="filter-pill">Período: <b>{fmtPeriodo(periodo)}</b></div>
+        <div className="filter-pill">
+          Tienda:
+          <select className="filter-select" value={tiendaFilter} onChange={(e) => setTiendaFilter(e.target.value)}>
+            <option value="">Todas (consolidado)</option>
+            {tiendaOptions.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </div>
         <div className="filter-pill">
           Provincia:
           <select className="filter-select" value={provinciaFilter} onChange={(e) => setProvinciaFilter(e.target.value)}>
@@ -137,8 +169,8 @@ export default function GastoVentaDashboard() {
             <option value="ISLA">Isla</option>
           </select>
         </div>
-        {(provinciaFilter || tipoFilter) && (
-          <button className="btn" onClick={() => { setProvinciaFilter(''); setTipoFilter('') }}>
+        {(provinciaFilter || tipoFilter || tiendaFilter) && (
+          <button className="btn" onClick={() => { setProvinciaFilter(''); setTipoFilter(''); setTiendaFilter('') }}>
             Limpiar filtros
           </button>
         )}
@@ -150,7 +182,74 @@ export default function GastoVentaDashboard() {
         ))}
       </div>
 
-      {tab === 'resumen' && (
+      {tab === 'resumen' && ficha && (
+        <>
+          <div className="grid-kpi">
+            <div className="kpi"><div className="label">M²</div><div className="value">{ficha.metraje || '—'}</div><div className="ctx">piso de venta</div></div>
+            <div className="kpi"><div className="label">HC Total</div><div className="value">{ficha.hc}</div><div className="ctx">colaboradores</div></div>
+            <div className="kpi"><div className="label">Venta / m²</div><div className="value">{fmtMoney(ficha.ventaPorM2)}</div><div className="ctx">{fmtPeriodo(periodo)}</div></div>
+            <div className="kpi"><div className="label">Venta / HC</div><div className="value">{fmtMoney(ficha.ventaPorHc)}</div><div className="ctx">por colaborador</div></div>
+            <div className="kpi warn"><div className="label">Gasto / Venta</div><div className="value">{ficha.ratioPct != null ? `${ficha.ratioPct}%` : '—'}</div><div className="ctx">gasto de personal</div></div>
+            <div className="kpi"><div className="label">Comisiones / Venta</div><div className="value">{ficha.comisionesPct != null ? `${ficha.comisionesPct}%` : '—'}</div><div className="ctx">{fmtMoney(ficha.comisiones)}</div></div>
+          </div>
+
+          {ficha.venta == null && (
+            <div className="card" style={{ marginBottom: 20, borderColor: 'var(--crit)' }}>
+              <div style={{ color: 'var(--crit)' }}>Esta tienda no tiene venta cruzada este período — los ratios de arriba no se pueden calcular. Revisar con finanzas.</div>
+            </div>
+          )}
+
+          <div className="row-3col">
+            <div className="card">
+              <h2>Ventas</h2>
+              <div className="desc">{fmtPeriodo(periodo)}</div>
+              <div className="area-row">
+                <div className="area-name">Ventas Retail</div>
+                <div className="area-bar-bg"><div className="area-bar" style={{ width: '100%' }} /></div>
+                <div className="area-val">{fmtMoney(ficha.venta)} <span style={{ color: 'var(--text-mute)', fontWeight: 400 }}>(100%)</span></div>
+              </div>
+              <div className="area-row">
+                <div className="area-name">Gastos de Personal</div>
+                <div className="area-bar-bg"><div className="area-bar" style={{ width: `${Math.min(ficha.ratioPct || 0, 100)}%` }} /></div>
+                <div className="area-val">{fmtMoney(ficha.gastoTotal)} <span style={{ color: 'var(--text-mute)', fontWeight: 400 }}>({ficha.ratioPct != null ? `${ficha.ratioPct}%` : '—'})</span></div>
+              </div>
+            </div>
+
+            <div className="card" style={{ gridColumn: 'span 2' }}>
+              <h2>Desglose de gasto por categoría</h2>
+              <div className="desc">Como % de la venta de la tienda</div>
+              {ficha.desglose.length === 0 && <div className="desc">Sin gasto registrado este período.</div>}
+              {ficha.desglose.map((d) => (
+                <div className="area-row" key={d.categoria}>
+                  <div className="area-name">{d.categoria}</div>
+                  <div className="area-bar-bg"><div className="area-bar" style={{ width: `${Math.min(d.pctVenta || 0, 100)}%` }} /></div>
+                  <div className="area-val">
+                    {fmtMoney(d.importe)} <span style={{ color: 'var(--text-mute)', fontWeight: 400 }}>({d.pctVenta != null ? `${d.pctVenta}%` : '—'})</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="card" style={{ marginTop: 20 }}>
+            <h2>Evolución mensual — {tiendaFilter}</h2>
+            <div className="desc">Gasto vs Venta, ene 2025 a la fecha</div>
+            <ResponsiveContainer width="100%" height={260}>
+              <LineChart data={evolucion.map((e) => ({ ...e, periodoLabel: fmtPeriodo(e.periodo) }))} margin={{ top: 10, right: 20, left: 0, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                <XAxis dataKey="periodoLabel" stroke="#8f9bc0" fontSize={11} />
+                <YAxis stroke="#5c6690" fontSize={11} tickFormatter={(v) => `$${Math.round(v / 1000)}k`} />
+                <Tooltip contentStyle={{ background: '#111c38', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, fontSize: 12.5 }} formatter={(v) => fmtMoney(v)} />
+                <Legend wrapperStyle={{ fontSize: 12.5 }} />
+                <Line type="monotone" dataKey="gasto" name="Gasto de personal" stroke="#ffb199" strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="venta" name="Venta" stroke="#8ecf8e" strokeWidth={2} dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </>
+      )}
+
+      {tab === 'resumen' && !ficha && (
         <>
           <div className="hero-ratio">
             <div className="hero-card">
@@ -203,7 +302,7 @@ export default function GastoVentaDashboard() {
               <div className="desc">Las que más gasto de personal consumen sobre su venta</div>
               {ranking.length === 0 && <div className="desc">Nadie en este filtro.</div>}
               {ranking.map((r, i) => (
-                <div className="priority-item" key={r.id}>
+                <div className="priority-item" key={r.id} onClick={() => setTiendaFilter(r.nombre)} style={{ cursor: 'pointer' }}>
                   <div className="p-left">
                     <div className="p-rank">{i + 1}</div>
                     <div>
@@ -271,7 +370,7 @@ export default function GastoVentaDashboard() {
             </thead>
             <tbody>
               {tableRows.slice(0, 80).map((r) => (
-                <tr key={r.id}>
+                <tr key={r.id} onClick={() => setTiendaFilter(r.nombre)} style={{ cursor: 'pointer' }}>
                   <td className="name">{r.nombre}</td>
                   <td>{r.provincia || '—'}</td>
                   <td>{r.tipo}</td>

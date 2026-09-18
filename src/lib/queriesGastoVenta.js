@@ -32,16 +32,34 @@ export async function getResumenPeriodo(periodo) {
   }))
 }
 
-// Evolución mensual consolidada (todas las tiendas), para el gráfico de línea.
-export async function getEvolucionMensual() {
+// Historial completo (todos los períodos, todas las tiendas) sin agregar —
+// se agrega en JS según el filtro de tienda activo (buildEvolucionSerie).
+export async function getEvolucionDetalle() {
   const { data, error } = await supabase
     .from('gv_resumen_mensual')
-    .select('periodo, gasto_total, venta, hc')
+    .select(`
+      periodo, gasto_total, venta, hc,
+      tienda_id,
+      gv_tiendas ( nombre )
+    `)
   if (error) throw error
+  return data.map((r) => ({
+    periodo: r.periodo,
+    gasto: r.gasto_total || 0,
+    venta: r.venta,
+    hc: r.hc || 0,
+    tienda: r.gv_tiendas?.nombre,
+  }))
+}
+
+// Si tiendaNombre viene vacío, consolida todas las tiendas por período.
+// Si viene una tienda puntual, devuelve solo su serie mensual.
+export function buildEvolucionSerie(evolucionDetalle, tiendaNombre) {
+  const rows = tiendaNombre ? evolucionDetalle.filter((r) => r.tienda === tiendaNombre) : evolucionDetalle
   const byPeriodo = {}
-  data.forEach((r) => {
+  rows.forEach((r) => {
     if (!byPeriodo[r.periodo]) byPeriodo[r.periodo] = { periodo: r.periodo, gasto: 0, venta: 0, hc: 0 }
-    byPeriodo[r.periodo].gasto += r.gasto_total || 0
+    byPeriodo[r.periodo].gasto += r.gasto || 0
     byPeriodo[r.periodo].venta += r.venta || 0
     byPeriodo[r.periodo].hc += r.hc || 0
   })
@@ -99,6 +117,24 @@ export function buildRubroTotales(rubroRows) {
   return Object.entries(byCat)
     .sort((a, b) => b[1] - a[1])
     .map(([categoria, importe]) => ({ categoria, importe: Math.round(importe * 100) / 100 }))
+}
+
+// Ficha completa de UNA tienda (estilo tu Excel: M2, HC, Venta/m2, Venta/HC,
+// Gasto/Venta%, Comisiones/Venta%, y el desglose por categoría como % de venta).
+export function buildFichaTienda(tiendaRow, rubroRowsTienda) {
+  if (!tiendaRow) return null
+  const venta = tiendaRow.venta
+  const ventaPorM2 = venta && tiendaRow.metraje ? venta / tiendaRow.metraje : null
+  const ventaPorHc = venta && tiendaRow.hc ? venta / tiendaRow.hc : null
+  const comisiones = rubroRowsTienda.find((r) => r.categoria === 'Comisiones')?.importe || 0
+  const comisionesPct = venta ? Math.round((comisiones / venta) * 1000) / 10 : null
+  const desglose = rubroRowsTienda
+    .slice()
+    .sort((a, b) => b.importe - a.importe)
+    .map((r) => ({ categoria: r.categoria, importe: r.importe, pctVenta: venta ? Math.round((r.importe / venta) * 1000) / 10 : null }))
+  return {
+    ...tiendaRow, ventaPorM2, ventaPorHc, comisiones, comisionesPct, desglose,
+  }
 }
 
 export function buildProvinciaRanking(resumenRows, limit = 10) {
