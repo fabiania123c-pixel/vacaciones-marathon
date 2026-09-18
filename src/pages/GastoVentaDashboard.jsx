@@ -26,6 +26,34 @@ function fmtPeriodo(p) {
   return `${meses[parseInt(m, 10) - 1]} ${y}`
 }
 
+// Umbral de alerta para el ratio Gasto/Venta — mismo criterio en tarjetas,
+// ranking y tabla de detalle.
+function ratioClass(pct) {
+  if (pct == null) return ''
+  if (pct >= 25) return 'crit'
+  if (pct >= 15) return 'warn'
+  return ''
+}
+
+// Variación vs el mes anterior dentro de una serie de evolución ya ordenada.
+function deltaVsAnterior(serie, periodo, field) {
+  const idx = serie.findIndex((s) => s.periodo === periodo)
+  if (idx <= 0) return null
+  const curr = serie[idx][field]
+  const prev = serie[idx - 1][field]
+  if (!prev) return null
+  return Math.round(((curr - prev) / prev) * 1000) / 10
+}
+
+function DeltaTag({ pct, invertGood = false }) {
+  if (pct == null) return null
+  const isGood = invertGood ? pct < 0 : pct > 0
+  const isBad = invertGood ? pct > 0 : pct < 0
+  const color = isGood ? 'var(--good, #8ecf8e)' : isBad ? 'var(--crit)' : 'var(--text-mute)'
+  const arrow = pct > 0 ? '↑' : pct < 0 ? '↓' : '→'
+  return <span style={{ color, fontSize: 12.5, fontWeight: 600, marginLeft: 8 }}>{arrow} {Math.abs(pct)}% vs mes ant.</span>
+}
+
 export default function GastoVentaDashboard() {
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState('resumen')
@@ -75,6 +103,9 @@ export default function GastoVentaDashboard() {
   const kpis = useMemo(() => buildKpis(filteredResumen), [filteredResumen])
   const ranking = useMemo(() => buildRanking(filteredResumen, 12), [filteredResumen])
   const evolucion = useMemo(() => buildEvolucionSerie(evolucionDetalle, tiendaFilter), [evolucionDetalle, tiendaFilter])
+  const deltaGasto = useMemo(() => deltaVsAnterior(evolucion, periodo, 'gasto'), [evolucion, periodo])
+  const deltaVenta = useMemo(() => deltaVsAnterior(evolucion, periodo, 'venta'), [evolucion, periodo])
+  const deltaHc = useMemo(() => deltaVsAnterior(evolucion, periodo, 'hc'), [evolucion, periodo])
 
   const rubroRowsFiltrado = useMemo(() => {
     return rubroRows.filter((r) => {
@@ -189,8 +220,11 @@ export default function GastoVentaDashboard() {
             <div className="kpi"><div className="label">HC Total</div><div className="value">{ficha.hc}</div><div className="ctx">colaboradores</div></div>
             <div className="kpi"><div className="label">Venta / m²</div><div className="value">{fmtMoney(ficha.ventaPorM2)}</div><div className="ctx">{fmtPeriodo(periodo)}</div></div>
             <div className="kpi"><div className="label">Venta / HC</div><div className="value">{fmtMoney(ficha.ventaPorHc)}</div><div className="ctx">por colaborador</div></div>
-            <div className="kpi warn"><div className="label">Gasto / Venta</div><div className="value">{ficha.ratioPct != null ? `${ficha.ratioPct}%` : '—'}</div><div className="ctx">gasto de personal</div></div>
+            <div className={`kpi ${ratioClass(ficha.ratioPct)}`}><div className="label">Gasto / Venta</div><div className="value">{ficha.ratioPct != null ? `${ficha.ratioPct}%` : '—'}</div><div className="ctx">gasto de personal</div></div>
             <div className="kpi"><div className="label">Comisiones / Venta</div><div className="value">{ficha.comisionesPct != null ? `${ficha.comisionesPct}%` : '—'}</div><div className="ctx">{fmtMoney(ficha.comisiones)}</div></div>
+          </div>
+          <div className="desc" style={{ marginTop: -8, marginBottom: 16 }}>
+            Gasto <DeltaTag pct={deltaGasto} invertGood /> · Venta <DeltaTag pct={deltaVenta} /> · HC <DeltaTag pct={deltaHc} />
           </div>
 
           {ficha.venta == null && (
@@ -270,11 +304,11 @@ export default function GastoVentaDashboard() {
           </div>
 
           <div className="grid-kpi">
-            <div className="kpi crit"><div className="label">Gasto de personal</div><div className="value">{fmtMoney(kpis.gastoTotal)}</div><div className="ctx">{fmtPeriodo(periodo)}</div></div>
-            <div className="kpi"><div className="label">Venta</div><div className="value">{fmtMoney(kpis.ventaTotal)}</div><div className="ctx">tiendas con venta cruzada</div></div>
-            <div className="kpi warn"><div className="label">% Gasto/Venta</div><div className="value">{kpis.ratioPct != null ? `${kpis.ratioPct}%` : '—'}</div><div className="ctx">consolidado del filtro</div></div>
+            <div className={`kpi ${ratioClass(kpis.ratioPct) || 'crit'}`}><div className="label">Gasto de personal</div><div className="value">{fmtMoney(kpis.gastoTotal)}</div><div className="ctx">{fmtPeriodo(periodo)} <DeltaTag pct={deltaGasto} invertGood /></div></div>
+            <div className="kpi"><div className="label">Venta</div><div className="value">{fmtMoney(kpis.ventaTotal)}</div><div className="ctx">tiendas con venta cruzada <DeltaTag pct={deltaVenta} /></div></div>
+            <div className={`kpi ${ratioClass(kpis.ratioPct)}`}><div className="label">% Gasto/Venta</div><div className="value">{kpis.ratioPct != null ? `${kpis.ratioPct}%` : '—'}</div><div className="ctx">consolidado del filtro</div></div>
             <div className="kpi action"><div className="label">Sin venta cruzada</div><div className="value">{kpis.nTiendasSinVenta}</div><div className="ctx">tiendas a resolver con finanzas</div></div>
-            <div className="kpi"><div className="label">Tiendas</div><div className="value">{kpis.nTiendas}</div><div className="ctx">en este filtro</div></div>
+            <div className="kpi"><div className="label">Tiendas</div><div className="value">{kpis.nTiendas}</div><div className="ctx">en este filtro · HC <DeltaTag pct={deltaHc} /></div></div>
           </div>
 
           <div className="card" style={{ marginBottom: 20 }}>
@@ -311,8 +345,9 @@ export default function GastoVentaDashboard() {
                     </div>
                   </div>
                   <div className="p-right">
-                    {r.ratioPct > 30 && <span className="badge" style={{ color: '#ffb199' }}>Alto</span>}
-                    <div className="p-saldo">{r.ratioPct}%</div>
+                    {ratioClass(r.ratioPct) === 'crit' && <span className="badge" style={{ color: '#ffb199' }}>Alto</span>}
+                    {ratioClass(r.ratioPct) === 'warn' && <span className="badge" style={{ color: '#ffd27a' }}>Medio</span>}
+                    <div className="p-saldo" style={{ color: ratioClass(r.ratioPct) === 'crit' ? 'var(--crit)' : ratioClass(r.ratioPct) === 'warn' ? '#ffd27a' : 'var(--text)' }}>{r.ratioPct}%</div>
                   </div>
                 </div>
               ))}
@@ -376,7 +411,9 @@ export default function GastoVentaDashboard() {
                   <td>{r.tipo}</td>
                   <td className="num">{fmtMoney(r.gastoTotal)}</td>
                   <td className="num">{r.venta != null ? fmtMoney(r.venta) : <span className="flag-sin">sin venta</span>}</td>
-                  <td className="num">{r.ratioPct != null ? `${r.ratioPct}%` : '—'}</td>
+                  <td className="num" style={{ color: ratioClass(r.ratioPct) === 'crit' ? 'var(--crit)' : ratioClass(r.ratioPct) === 'warn' ? '#ffd27a' : undefined, fontWeight: ratioClass(r.ratioPct) ? 700 : 400 }}>
+                    {r.ratioPct != null ? `${r.ratioPct}%` : '—'}
+                  </td>
                   <td className="num">{r.hc}</td>
                   <td className="num">{r.metraje || '—'}</td>
                 </tr>
