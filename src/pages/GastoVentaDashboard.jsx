@@ -148,8 +148,22 @@ export default function GastoVentaDashboard() {
   }, [rubroRows, tiendaFilter, provinciaFilter, tipoFilter])
   const rubroTotales = useMemo(() => buildRubroTotales(rubroRowsFiltrado), [rubroRowsFiltrado])
   const maxRubro = rubroTotales[0]?.importe || 1
-  const provinciaRanking = useMemo(() => buildProvinciaRanking(resumen, 8), [resumen])
+  const provinciaRanking = useMemo(() => buildProvinciaRanking(filteredResumen, 8), [filteredResumen])
   const maxProvincia = provinciaRanking[0]?.gasto || 1
+
+  // Venta/m² y Venta/HC agregados del consolidado — mismo criterio que la
+  // ficha por tienda. El m² y el HC se suman SOLO de las tiendas con venta
+  // cruzada, para que el denominador cuadre con kpis.ventaTotal (que ya
+  // excluye las tiendas sin venta) y el ratio no salga inflado.
+  const { metrajeTotalConVenta, hcTotalConVenta } = useMemo(() => {
+    const conVenta = filteredResumen.filter((r) => r.venta != null)
+    return {
+      metrajeTotalConVenta: conVenta.reduce((s, r) => s + (r.metraje || 0), 0),
+      hcTotalConVenta: conVenta.reduce((s, r) => s + (r.hc || 0), 0),
+    }
+  }, [filteredResumen])
+  const ventaPorM2Consolidado = metrajeTotalConVenta && kpis.ventaTotal ? kpis.ventaTotal / metrajeTotalConVenta : null
+  const ventaPorHcConsolidado = hcTotalConVenta && kpis.ventaTotal ? kpis.ventaTotal / hcTotalConVenta : null
 
   const ficha = useMemo(() => {
     if (!tiendaFilter) return null
@@ -255,16 +269,34 @@ export default function GastoVentaDashboard() {
 
       {tab === 'resumen' && ficha && (
         <>
-          <div className="grid-kpi">
+          <div className="hero-ratio">
+            <div className="hero-card">
+              <div className="hero-label">Gasto / Venta</div>
+              <div
+                className="hero-pct"
+                style={{ color: ratioClass(ficha.ratioPct) === 'crit' ? 'var(--crit)' : ratioClass(ficha.ratioPct) === 'warn' ? '#ffd27a' : 'var(--good, #8ecf8e)' }}
+              >
+                {ficha.ratioPct != null ? `${ficha.ratioPct}%` : '—'}
+              </div>
+              <div className="hero-days">{fmtMoney(ficha.gastoTotal)} de gasto de personal sobre {fmtMoney(ficha.venta)} de venta</div>
+            </div>
+            <div className="hero-card">
+              <div className="hero-label">Comisiones / Venta</div>
+              <div className="hero-pct" style={{ color: 'var(--text)' }}>
+                {ficha.comisionesPct != null ? `${ficha.comisionesPct}%` : '—'}
+              </div>
+              <div className="hero-days">{fmtMoney(ficha.comisiones)} en comisiones este período</div>
+            </div>
+          </div>
+          <div className="desc" style={{ marginTop: -8, marginBottom: 16 }}>
+            Gasto <DeltaTag pct={deltaGasto} invertGood /> · Venta <DeltaTag pct={deltaVenta} /> · HC <DeltaTag pct={deltaHc} />
+          </div>
+
+          <div className="grid-kpi" style={{ marginBottom: 20 }}>
             <div className="kpi"><div className="label">M²</div><div className="value">{ficha.metraje || '—'}</div><div className="ctx">piso de venta</div></div>
             <div className="kpi"><div className="label">HC Total</div><div className="value">{ficha.hc}</div><div className="ctx">colaboradores</div></div>
             <div className="kpi"><div className="label">Venta / m²</div><div className="value">{fmtMoney(ficha.ventaPorM2)}</div><div className="ctx">{fmtPeriodo(periodo)}</div></div>
             <div className="kpi"><div className="label">Venta / HC</div><div className="value">{fmtMoney(ficha.ventaPorHc)}</div><div className="ctx">por colaborador</div></div>
-            <div className={`kpi ${ratioClass(ficha.ratioPct)}`}><div className="label">Gasto / Venta</div><div className="value">{ficha.ratioPct != null ? `${ficha.ratioPct}%` : '—'}</div><div className="ctx">gasto de personal</div></div>
-            <div className="kpi"><div className="label">Comisiones / Venta</div><div className="value">{ficha.comisionesPct != null ? `${ficha.comisionesPct}%` : '—'}</div><div className="ctx">{fmtMoney(ficha.comisiones)}</div></div>
-          </div>
-          <div className="desc" style={{ marginTop: -8, marginBottom: 16 }}>
-            Gasto <DeltaTag pct={deltaGasto} invertGood /> · Venta <DeltaTag pct={deltaVenta} /> · HC <DeltaTag pct={deltaHc} />
           </div>
 
           {ficha.venta == null && (
@@ -356,6 +388,8 @@ export default function GastoVentaDashboard() {
             <div className={`kpi ${ratioClass(kpis.ratioPct)}`}><div className="label">% Gasto/Venta</div><div className="value">{kpis.ratioPct != null ? `${kpis.ratioPct}%` : '—'}</div><div className="ctx">consolidado del filtro</div></div>
             <div className="kpi action"><div className="label">Sin venta cruzada</div><div className="value">{kpis.nTiendasSinVenta}</div><div className="ctx">tiendas a resolver con finanzas</div></div>
             <div className="kpi"><div className="label">Tiendas</div><div className="value">{kpis.nTiendas}</div><div className="ctx">en este filtro · HC <DeltaTag pct={deltaHc} /></div></div>
+            <div className="kpi"><div className="label">Venta / m²</div><div className="value">{fmtMoney(ventaPorM2Consolidado)}</div><div className="ctx">{fmtPeriodo(periodo)} · agregado del filtro</div></div>
+            <div className="kpi"><div className="label">Venta / HC</div><div className="value">{fmtMoney(ventaPorHcConsolidado)}</div><div className="ctx">por colaborador</div></div>
           </div>
 
           <div className="card" style={{ marginBottom: 20 }}>
