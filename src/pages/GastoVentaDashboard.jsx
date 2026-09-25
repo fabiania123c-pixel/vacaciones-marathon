@@ -94,7 +94,8 @@ export default function GastoVentaDashboard() {
     setPeriodo(nuevoPeriodo)
     setResumen(res)
     setRubroRows(rub)
-    setTiendaFilter('')
+    // OJO: no tocamos tiendaFilter aquí — si estabas viendo una tienda y
+    // cambias de mes, te quedas en esa misma tienda (solo cambia el mes).
     setLoading(false)
   }
 
@@ -155,6 +156,10 @@ export default function GastoVentaDashboard() {
     const tiendaRow = resumen.find((r) => r.nombre === tiendaFilter)
     return buildFichaTienda(tiendaRow, rubroRowsFiltrado)
   }, [tiendaFilter, resumen, rubroRowsFiltrado])
+
+  // Tienda elegida pero sin datos en el mes actual (típico: tienda que abrió
+  // después de ese período) — se lo decimos en vez de saltar al consolidado sin avisar.
+  const tiendaSinDatosEstePeriodo = tiendaFilter && !ficha
 
   const tableRows = useMemo(() => {
     return filteredResumen.filter((r) => {
@@ -318,7 +323,14 @@ export default function GastoVentaDashboard() {
         </>
       )}
 
-      {tab === 'resumen' && !ficha && (
+      {tab === 'resumen' && tiendaSinDatosEstePeriodo && (
+        <div className="card">
+          <h2>{tiendaFilter}</h2>
+          <div className="desc">Sin datos en {fmtPeriodo(periodo)} — probablemente esta tienda todavía no existía o no reportó ese mes. Cambia de período arriba para ver otro mes, o limpia el filtro de tienda para ver el consolidado.</div>
+        </div>
+      )}
+
+      {tab === 'resumen' && !ficha && !tiendaSinDatosEstePeriodo && (
         <>
           <div className="hero-ratio">
             <div className="hero-card">
