@@ -83,6 +83,26 @@ export default function GastoVentaDashboard() {
 
   useEffect(() => { load() }, [])
 
+  // Cambiar de mes en el selector — trae el resumen y el desglose de ESE
+  // período. La evolución consolidada ya tiene todo el histórico cargado,
+  // no hace falta volver a pedirla.
+  async function cambiarPeriodo(nuevoPeriodo) {
+    setLoading(true)
+    const [res, rub] = await Promise.all([
+      getResumenPeriodo(nuevoPeriodo), getRubroBreakdown(nuevoPeriodo),
+    ])
+    setPeriodo(nuevoPeriodo)
+    setResumen(res)
+    setRubroRows(rub)
+    setTiendaFilter('')
+    setLoading(false)
+  }
+
+  const periodoOptions = useMemo(
+    () => evolucionConsolidada.map((e) => e.periodo).sort((a, b) => b.localeCompare(a)),
+    [evolucionConsolidada],
+  )
+
   // Cuando se elige una tienda puntual, traemos SU serie mensual aparte
   // (consulta filtrada por tienda_id, nunca la tabla completa).
   useEffect(() => {
@@ -187,7 +207,12 @@ export default function GastoVentaDashboard() {
       </div>
 
       <div className="filters">
-        <div className="filter-pill">Período: <b>{fmtPeriodo(periodo)}</b></div>
+        <div className="filter-pill">
+          Período:
+          <select className="filter-select" value={periodo} onChange={(e) => cambiarPeriodo(e.target.value)}>
+            {periodoOptions.map((p) => <option key={p} value={p}>{fmtPeriodo(p)}</option>)}
+          </select>
+        </div>
         <div className="filter-pill">
           Tienda:
           <select className="filter-select" value={tiendaFilter} onChange={(e) => setTiendaFilter(e.target.value)}>
