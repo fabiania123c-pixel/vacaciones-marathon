@@ -148,6 +148,11 @@ export default function GastoVentaDashboard() {
   }, [rubroRows, tiendaFilter, provinciaFilter, tipoFilter])
   const rubroTotales = useMemo(() => buildRubroTotales(rubroRowsFiltrado), [rubroRowsFiltrado])
   const maxRubro = rubroTotales[0]?.importe || 1
+
+  // Comisiones/Venta agregado del consolidado — mismo criterio que la ficha
+  // por tienda: comisiones totales del filtro sobre la venta total del filtro.
+  const comisionesTotalFiltro = rubroTotales.find((r) => r.categoria === 'Comisiones')?.importe || 0
+  const comisionesPctConsolidado = kpis.ventaTotal ? Math.round((comisionesTotalFiltro / kpis.ventaTotal) * 1000) / 10 : null
   const provinciaRanking = useMemo(() => buildProvinciaRanking(filteredResumen, 8), [filteredResumen])
   const maxProvincia = provinciaRanking[0]?.gasto || 1
 
@@ -366,9 +371,14 @@ export default function GastoVentaDashboard() {
         <>
           <div className="hero-ratio">
             <div className="hero-card">
-              <div className="hero-label">% Gasto de personal sobre Venta</div>
-              <div className="hero-pct">{kpis.ratioPct != null ? `${kpis.ratioPct}%` : '—'}</div>
-              <div className="hero-days">{fmtMoney(kpis.gastoTotal)} de gasto sobre {fmtMoney(kpis.ventaTotal)} de venta</div>
+              <div className="hero-label">Gasto / Venta</div>
+              <div
+                className="hero-pct"
+                style={{ color: ratioClass(kpis.ratioPct) === 'crit' ? 'var(--crit)' : ratioClass(kpis.ratioPct) === 'warn' ? '#ffd27a' : 'var(--good, #8ecf8e)' }}
+              >
+                {kpis.ratioPct != null ? `${kpis.ratioPct}%` : '—'}
+              </div>
+              <div className="hero-days">{fmtMoney(kpis.gastoTotal)} de gasto de personal sobre {fmtMoney(kpis.ventaTotal)} de venta</div>
               <div className="hero-source global">
                 {kpis.nTiendasSinVenta > 0
                   ? `${kpis.nTiendasSinVenta} tienda(s) sin venta cruzada, excluidas del ratio`
@@ -376,9 +386,11 @@ export default function GastoVentaDashboard() {
               </div>
             </div>
             <div className="hero-card">
-              <div className="hero-label">Colaboradores (HC)</div>
-              <div className="hero-pct" style={{ color: 'var(--text)' }}>{kpis.hcTotal.toLocaleString()}</div>
-              <div className="hero-days">en {kpis.nTiendas} tiendas — {fmtPeriodo(periodo)}</div>
+              <div className="hero-label">Comisiones / Venta</div>
+              <div className="hero-pct" style={{ color: 'var(--text)' }}>
+                {comisionesPctConsolidado != null ? `${comisionesPctConsolidado}%` : '—'}
+              </div>
+              <div className="hero-days">{fmtMoney(comisionesTotalFiltro)} en comisiones — {fmtPeriodo(periodo)}</div>
             </div>
           </div>
 
@@ -387,7 +399,8 @@ export default function GastoVentaDashboard() {
             <div className="kpi"><div className="label">Venta</div><div className="value">{fmtMoney(kpis.ventaTotal)}</div><div className="ctx">tiendas con venta cruzada <DeltaTag pct={deltaVenta} /></div></div>
             <div className={`kpi ${ratioClass(kpis.ratioPct)}`}><div className="label">% Gasto/Venta</div><div className="value">{kpis.ratioPct != null ? `${kpis.ratioPct}%` : '—'}</div><div className="ctx">consolidado del filtro</div></div>
             <div className="kpi action"><div className="label">Sin venta cruzada</div><div className="value">{kpis.nTiendasSinVenta}</div><div className="ctx">tiendas a resolver con finanzas</div></div>
-            <div className="kpi"><div className="label">Tiendas</div><div className="value">{kpis.nTiendas}</div><div className="ctx">en este filtro · HC <DeltaTag pct={deltaHc} /></div></div>
+            <div className="kpi"><div className="label">Tiendas</div><div className="value">{kpis.nTiendas}</div><div className="ctx">en este filtro</div></div>
+            <div className="kpi"><div className="label">Colaboradores (HC)</div><div className="value">{kpis.hcTotal.toLocaleString()}</div><div className="ctx">{fmtPeriodo(periodo)} <DeltaTag pct={deltaHc} /></div></div>
             <div className="kpi"><div className="label">Venta / m²</div><div className="value">{fmtMoney(ventaPorM2Consolidado)}</div><div className="ctx">{fmtPeriodo(periodo)} · agregado del filtro</div></div>
             <div className="kpi"><div className="label">Venta / HC</div><div className="value">{fmtMoney(ventaPorHcConsolidado)}</div><div className="ctx">por colaborador</div></div>
           </div>
