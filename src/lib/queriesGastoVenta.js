@@ -32,38 +32,30 @@ export async function getResumenPeriodo(periodo) {
   }))
 }
 
-// Historial completo (todos los períodos, todas las tiendas) sin agregar —
-// se agrega en JS según el filtro de tienda activo (buildEvolucionSerie).
-export async function getEvolucionDetalle() {
+// Evolución consolidada (todas las tiendas) — lee la vista gv_evolucion_consolidada,
+// que ya viene agregada por período en la base (20 filas, no 2600+). Nunca usar
+// un select() sin filtro directo sobre gv_resumen_mensual: Supabase corta a 1000
+// filas por consulta y esa tabla ya pasa ese número, lo que rompía el gráfico.
+export async function getEvolucionConsolidada() {
   const { data, error } = await supabase
-    .from('gv_resumen_mensual')
-    .select(`
-      periodo, gasto_total, venta, hc,
-      tienda_id,
-      gv_tiendas ( nombre )
-    `)
+    .from('gv_evolucion_consolidada')
+    .select('periodo, gasto, venta, hc')
+    .order('periodo', { ascending: true })
   if (error) throw error
-  return data.map((r) => ({
-    periodo: r.periodo,
-    gasto: r.gasto_total || 0,
-    venta: r.venta,
-    hc: r.hc || 0,
-    tienda: r.gv_tiendas?.nombre,
-  }))
+  return data
 }
 
-// Si tiendaNombre viene vacío, consolida todas las tiendas por período.
-// Si viene una tienda puntual, devuelve solo su serie mensual.
-export function buildEvolucionSerie(evolucionDetalle, tiendaNombre) {
-  const rows = tiendaNombre ? evolucionDetalle.filter((r) => r.tienda === tiendaNombre) : evolucionDetalle
-  const byPeriodo = {}
-  rows.forEach((r) => {
-    if (!byPeriodo[r.periodo]) byPeriodo[r.periodo] = { periodo: r.periodo, gasto: 0, venta: 0, hc: 0 }
-    byPeriodo[r.periodo].gasto += r.gasto || 0
-    byPeriodo[r.periodo].venta += r.venta || 0
-    byPeriodo[r.periodo].hc += r.hc || 0
-  })
-  return Object.values(byPeriodo).sort((a, b) => a.periodo.localeCompare(b.periodo))
+// Evolución de UNA tienda puntual — filtrada por tienda_id, como mucho ~20
+// filas (una por período cargado), tampoco choca nunca con el límite de 1000.
+export async function getEvolucionPorTienda(tiendaId) {
+  if (!tiendaId) return []
+  const { data, error } = await supabase
+    .from('gv_resumen_mensual')
+    .select('periodo, gasto_total, venta, hc')
+    .eq('tienda_id', tiendaId)
+    .order('periodo', { ascending: true })
+  if (error) throw error
+  return data.map((r) => ({ periodo: r.periodo, gasto: r.gasto_total || 0, venta: r.venta, hc: r.hc || 0 }))
 }
 
 // Desglose de gasto por categoría de rubro para un período (todas las tiendas

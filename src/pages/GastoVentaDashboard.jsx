@@ -3,9 +3,9 @@ import { Link } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 import * as XLSX from 'xlsx'
 import {
-  getLatestPeriodo, getResumenPeriodo, getEvolucionDetalle, getRubroBreakdown,
+  getLatestPeriodo, getResumenPeriodo, getEvolucionConsolidada, getEvolucionPorTienda, getRubroBreakdown,
   buildKpis, buildRanking, buildRubroTotales, buildProvinciaRanking,
-  buildEvolucionSerie, buildFichaTienda,
+  buildFichaTienda,
 } from '../lib/queriesGastoVenta'
 import { LineChart, Line, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid } from 'recharts'
 
@@ -59,7 +59,8 @@ export default function GastoVentaDashboard() {
   const [tab, setTab] = useState('resumen')
   const [periodo, setPeriodo] = useState(null)
   const [resumen, setResumen] = useState([])
-  const [evolucionDetalle, setEvolucionDetalle] = useState([])
+  const [evolucionConsolidada, setEvolucionConsolidada] = useState([])
+  const [evolucionTienda, setEvolucionTienda] = useState([])
   const [rubroRows, setRubroRows] = useState([])
   const [search, setSearch] = useState('')
   const [provinciaFilter, setProvinciaFilter] = useState('')
@@ -70,17 +71,26 @@ export default function GastoVentaDashboard() {
     setLoading(true)
     const p = await getLatestPeriodo()
     if (!p) { setLoading(false); return }
-    const [res, evoDet, rub] = await Promise.all([
-      getResumenPeriodo(p), getEvolucionDetalle(), getRubroBreakdown(p),
+    const [res, evoCons, rub] = await Promise.all([
+      getResumenPeriodo(p), getEvolucionConsolidada(), getRubroBreakdown(p),
     ])
     setPeriodo(p)
     setResumen(res)
-    setEvolucionDetalle(evoDet)
+    setEvolucionConsolidada(evoCons)
     setRubroRows(rub)
     setLoading(false)
   }
 
   useEffect(() => { load() }, [])
+
+  // Cuando se elige una tienda puntual, traemos SU serie mensual aparte
+  // (consulta filtrada por tienda_id, nunca la tabla completa).
+  useEffect(() => {
+    if (!tiendaFilter) { setEvolucionTienda([]); return }
+    const tiendaId = resumen.find((r) => r.nombre === tiendaFilter)?.id
+    if (!tiendaId) return
+    getEvolucionPorTienda(tiendaId).then(setEvolucionTienda)
+  }, [tiendaFilter, resumen])
 
   const provinciaOptions = useMemo(
     () => [...new Set(resumen.map((r) => r.provincia).filter(Boolean))].sort(),
@@ -102,7 +112,7 @@ export default function GastoVentaDashboard() {
 
   const kpis = useMemo(() => buildKpis(filteredResumen), [filteredResumen])
   const ranking = useMemo(() => buildRanking(filteredResumen, 12), [filteredResumen])
-  const evolucion = useMemo(() => buildEvolucionSerie(evolucionDetalle, tiendaFilter), [evolucionDetalle, tiendaFilter])
+  const evolucion = tiendaFilter ? evolucionTienda : evolucionConsolidada
   const deltaGasto = useMemo(() => deltaVsAnterior(evolucion, periodo, 'gasto'), [evolucion, periodo])
   const deltaVenta = useMemo(() => deltaVsAnterior(evolucion, periodo, 'venta'), [evolucion, periodo])
   const deltaHc = useMemo(() => deltaVsAnterior(evolucion, periodo, 'hc'), [evolucion, periodo])
@@ -304,7 +314,7 @@ export default function GastoVentaDashboard() {
           </div>
 
           <div className="grid-kpi">
-            <div className={`kpi ${ratioClass(kpis.ratioPct) || 'crit'}`}><div className="label">Gasto de personal</div><div className="value">{fmtMoney(kpis.gastoTotal)}</div><div className="ctx">{fmtPeriodo(periodo)} <DeltaTag pct={deltaGasto} invertGood /></div></div>
+            <div className={`kpi ${ratioClass(kpis.ratioPct)}`}><div className="label">Gasto de personal</div><div className="value">{fmtMoney(kpis.gastoTotal)}</div><div className="ctx">{fmtPeriodo(periodo)} <DeltaTag pct={deltaGasto} invertGood /></div></div>
             <div className="kpi"><div className="label">Venta</div><div className="value">{fmtMoney(kpis.ventaTotal)}</div><div className="ctx">tiendas con venta cruzada <DeltaTag pct={deltaVenta} /></div></div>
             <div className={`kpi ${ratioClass(kpis.ratioPct)}`}><div className="label">% Gasto/Venta</div><div className="value">{kpis.ratioPct != null ? `${kpis.ratioPct}%` : '—'}</div><div className="ctx">consolidado del filtro</div></div>
             <div className="kpi action"><div className="label">Sin venta cruzada</div><div className="value">{kpis.nTiendasSinVenta}</div><div className="ctx">tiendas a resolver con finanzas</div></div>
