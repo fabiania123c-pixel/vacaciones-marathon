@@ -129,6 +129,52 @@ export function buildFichaTienda(tiendaRow, rubroRowsTienda) {
   }
 }
 
+// Agrega el resumen de varios meses (un año completo) en UNA fila por
+// tienda, con la misma forma que getResumenPeriodo — así el resto del
+// dashboard (kpis, ranking, ficha, provinciaRanking) funciona igual sin
+// cambios. Gasto y venta se SUMAN (total del año); el HC se PROMEDIA
+// (sumar dotación mes a mes no tiene sentido); venta queda null solo si
+// la tienda no tuvo venta cruzada en NINGÚN mes del año.
+// periodRows: [{ periodo, rows }, ...] — rows = lo que devuelve getResumenPeriodo.
+export function buildResumenAnual(periodRows) {
+  const byTienda = new Map()
+  periodRows.forEach(({ rows }) => {
+    rows.forEach((r) => {
+      if (!byTienda.has(r.id)) {
+        byTienda.set(r.id, {
+          id: r.id, nombre: r.nombre, tipo: r.tipo, provincia: r.provincia, pais: r.pais, metraje: r.metraje,
+          gastoTotal: 0, ventaSum: 0, ventaMeses: 0, hcSum: 0, hcMeses: 0,
+        })
+      }
+      const acc = byTienda.get(r.id)
+      acc.gastoTotal += r.gastoTotal || 0
+      if (r.venta != null) { acc.ventaSum += r.venta; acc.ventaMeses += 1 }
+      if (r.hc != null) { acc.hcSum += r.hc; acc.hcMeses += 1 }
+    })
+  })
+  return Array.from(byTienda.values()).map((acc) => {
+    const venta = acc.ventaMeses > 0 ? acc.ventaSum : null
+    const hc = acc.hcMeses > 0 ? Math.round(acc.hcSum / acc.hcMeses) : 0
+    const ratioPct = venta ? Math.round((acc.gastoTotal / venta) * 1000) / 10 : null
+    return { id: acc.id, nombre: acc.nombre, tipo: acc.tipo, provincia: acc.provincia, pais: acc.pais, metraje: acc.metraje, gastoTotal: acc.gastoTotal, venta, hc, ratioPct }
+  })
+}
+
+// Agrega el desglose de rubros de varios meses en UNA fila por tienda+categoría
+// (suma de importe). Sin esto, buildFichaTienda (que hace .find por categoría)
+// solo tomaría el importe del primer mes y el desglose saldría duplicado con
+// una fila por mes en vez de una fila por categoría.
+// periodRubroArrays: [ [...getRubroBreakdown(p)], [...], ... ]
+export function buildRubroRowsAnual(periodRubroArrays) {
+  const byKey = new Map()
+  periodRubroArrays.flat().forEach((r) => {
+    const key = `${r.tienda}|${r.categoria}`
+    if (!byKey.has(key)) byKey.set(key, { categoria: r.categoria, tienda: r.tienda, tipo: r.tipo, provincia: r.provincia, importe: 0 })
+    byKey.get(key).importe += r.importe || 0
+  })
+  return Array.from(byKey.values())
+}
+
 export function buildProvinciaRanking(resumenRows, limit = 10) {
   const byProv = {}
   resumenRows.forEach((r) => {

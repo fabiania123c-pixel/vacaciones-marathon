@@ -5,7 +5,7 @@ import * as XLSX from 'xlsx'
 import {
   getLatestPeriodo, getResumenPeriodo, getEvolucionConsolidada, getEvolucionPorTienda, getRubroBreakdown,
   buildKpis, buildRanking, buildRubroTotales, buildProvinciaRanking,
-  buildFichaTienda,
+  buildFichaTienda, buildResumenAnual, buildRubroRowsAnual,
 } from '../lib/queriesGastoVenta'
 import { LineChart, Line, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid } from 'recharts'
 
@@ -24,6 +24,14 @@ function fmtPeriodo(p) {
   const [y, m] = p.split('-')
   const meses = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
   return `${meses[parseInt(m, 10) - 1]} ${y}`
+}
+
+// Igual que fmtPeriodo pero también entiende el valor especial "ANUAL-2026"
+// que usa el selector de Período cuando eliges ver un año completo.
+function fmtPeriodoLabel(p) {
+  if (!p) return '—'
+  if (p.startsWith('ANUAL-')) return `Todo ${p.slice(6)}`
+  return fmtPeriodo(p)
 }
 
 // Umbral de alerta para el ratio Gasto/Venta — mismo criterio en tarjetas,
@@ -83,19 +91,34 @@ export default function GastoVentaDashboard() {
 
   useEffect(() => { load() }, [])
 
-  // Cambiar de mes en el selector — trae el resumen y el desglose de ESE
-  // período. La evolución consolidada ya tiene todo el histórico cargado,
-  // no hace falta volver a pedirla.
+  // Cambiar de período en el selector. Si es un mes puntual, trae el resumen
+  // y el desglose de ESE mes. Si es "ANUAL-2026" (eligieron ver el año
+  // completo), trae cada mes cargado de ese año EN PARALELO (nunca un select
+  // sin filtro — seguimos evitando el límite de 1000 filas de Supabase) y
+  // los agrega en una sola fila por tienda con buildResumenAnual/buildRubroRowsAnual.
+  // La evolución consolidada ya tiene todo el histórico cargado, no hace
+  // falta volver a pedirla en ningún caso.
   async function cambiarPeriodo(nuevoPeriodo) {
     setLoading(true)
-    const [res, rub] = await Promise.all([
-      getResumenPeriodo(nuevoPeriodo), getRubroBreakdown(nuevoPeriodo),
-    ])
+    if (nuevoPeriodo.startsWith('ANUAL-')) {
+      const anio = nuevoPeriodo.slice(6)
+      const periodosDelAnio = periodoOptions.filter((p) => p.startsWith(anio))
+      const [resArr, rubArr] = await Promise.all([
+        Promise.all(periodosDelAnio.map((p) => getResumenPeriodo(p))),
+        Promise.all(periodosDelAnio.map((p) => getRubroBreakdown(p))),
+      ])
+      setResumen(buildResumenAnual(periodosDelAnio.map((p, i) => ({ periodo: p, rows: resArr[i] }))))
+      setRubroRows(buildRubroRowsAnual(rubArr))
+    } else {
+      const [res, rub] = await Promise.all([
+        getResumenPeriodo(nuevoPeriodo), getRubroBreakdown(nuevoPeriodo),
+      ])
+      setResumen(res)
+      setRubroRows(rub)
+    }
     setPeriodo(nuevoPeriodo)
-    setResumen(res)
-    setRubroRows(rub)
     // OJO: no tocamos tiendaFilter aquí — si estabas viendo una tienda y
-    // cambias de mes, te quedas en esa misma tienda (solo cambia el mes).
+    // cambias de período, te quedas en esa misma tienda.
     setLoading(false)
   }
 
@@ -103,6 +126,11 @@ export default function GastoVentaDashboard() {
     () => evolucionConsolidada.map((e) => e.periodo).sort((a, b) => b.localeCompare(a)),
     [evolucionConsolidada],
   )
+  const yearOptions = useMemo(
+    () => [...new Set(periodoOptions.map((p) => p.slice(0, 4)))].sort((a, b) => b.localeCompare(a)),
+    [periodoOptions],
+  )
+  const esVistaAnual = periodo?.startsWith('ANUAL-')
 
   // Cuando se elige una tienda puntual, traemos SU serie mensual aparte
   // (consulta filtrada por tienda_id, nunca la tabla completa).
@@ -196,7 +224,7 @@ export default function GastoVentaDashboard() {
     const ws = XLSX.utils.json_to_sheet(rows)
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Gasto vs Venta')
-    XLSX.writeFile(wb, `gasto_venta_${periodo}.xlsx`)
+    XLSX.writeFile(wb, `gasto_venta_${periodo?.replace('ANUAL-', 'anual_')}.xlsx`)
   }
 
   if (loading) return <div className="page">Cargando…</div>
@@ -226,7 +254,7 @@ export default function GastoVentaDashboard() {
         </div>
       </div>
       <div className="sub">
-        Período <b>{fmtPeriodo(periodo)}</b> · mostrando <b>{filteredResumen.length}</b> de {resumen.length} tiendas
+        Período <b>{fmtPeriodoLabel(periodo)}</b> · mostrando <b>{filteredResumen.length}</b> de {resumen.length} tiendas
         {(provinciaFilter || tipoFilter || tiendaFilter) && <> — filtros activos</>}
       </div>
 
@@ -234,7 +262,12 @@ export default function GastoVentaDashboard() {
         <div className="filter-pill">
           Período:
           <select className="filter-select" value={periodo} onChange={(e) => cambiarPeriodo(e.target.value)}>
-            {periodoOptions.map((p) => <option key={p} value={p}>{fmtPeriodo(p)}</option>)}
+            <optgroup label="Meses">
+              {periodoOptions.map((p) => <option key={p} value={p}>{fmtPeriodo(p)}</option>)}
+            </optgroup>
+            <optgroup label="Años completos">
+              {yearOptions.map((y) => <option key={`ANUAL-${y}`} value={`ANUAL-${y}`}>Todo {y}</option>)}
+            </optgroup>
           </select>
         </div>
         <div className="filter-pill">
@@ -300,7 +333,7 @@ export default function GastoVentaDashboard() {
           <div className="grid-kpi" style={{ marginBottom: 20 }}>
             <div className="kpi"><div className="label">M²</div><div className="value">{ficha.metraje || '—'}</div><div className="ctx">piso de venta</div></div>
             <div className="kpi"><div className="label">HC Total</div><div className="value">{ficha.hc}</div><div className="ctx">colaboradores</div></div>
-            <div className="kpi"><div className="label">Venta / m²</div><div className="value">{fmtMoney(ficha.ventaPorM2)}</div><div className="ctx">{fmtPeriodo(periodo)}</div></div>
+            <div className="kpi"><div className="label">Venta / m²</div><div className="value">{fmtMoney(ficha.ventaPorM2)}</div><div className="ctx">{fmtPeriodoLabel(periodo)}</div></div>
             <div className="kpi"><div className="label">Venta / HC</div><div className="value">{fmtMoney(ficha.ventaPorHc)}</div><div className="ctx">por colaborador</div></div>
           </div>
 
@@ -313,7 +346,7 @@ export default function GastoVentaDashboard() {
           <div className="row-3col">
             <div className="card">
               <h2>Ventas</h2>
-              <div className="desc">{fmtPeriodo(periodo)}</div>
+              <div className="desc">{fmtPeriodoLabel(periodo)}</div>
               <div className="area-row">
                 <div className="area-name">Ventas Retail</div>
                 <div className="area-bar-bg"><div className="area-bar" style={{ width: '100%' }} /></div>
@@ -363,7 +396,10 @@ export default function GastoVentaDashboard() {
       {tab === 'resumen' && tiendaSinDatosEstePeriodo && (
         <div className="card">
           <h2>{tiendaFilter}</h2>
-          <div className="desc">Sin datos en {fmtPeriodo(periodo)} — probablemente esta tienda todavía no existía o no reportó ese mes. Cambia de período arriba para ver otro mes, o limpia el filtro de tienda para ver el consolidado.</div>
+          <div className="desc">
+            Sin datos en {fmtPeriodoLabel(periodo)} — probablemente esta tienda todavía no existía o no reportó {esVistaAnual ? 'ningún mes de ese año' : 'ese mes'}.
+            Cambia de período arriba para ver {esVistaAnual ? 'otro año' : 'otro mes'}, o limpia el filtro de tienda para ver el consolidado.
+          </div>
         </div>
       )}
 
@@ -390,18 +426,18 @@ export default function GastoVentaDashboard() {
               <div className="hero-pct" style={{ color: 'var(--text)' }}>
                 {comisionesPctConsolidado != null ? `${comisionesPctConsolidado}%` : '—'}
               </div>
-              <div className="hero-days">{fmtMoney(comisionesTotalFiltro)} en comisiones — {fmtPeriodo(periodo)}</div>
+              <div className="hero-days">{fmtMoney(comisionesTotalFiltro)} en comisiones — {fmtPeriodoLabel(periodo)}</div>
             </div>
           </div>
 
           <div className="grid-kpi">
-            <div className={`kpi ${ratioClass(kpis.ratioPct)}`}><div className="label">Gasto de personal</div><div className="value">{fmtMoney(kpis.gastoTotal)}</div><div className="ctx">{fmtPeriodo(periodo)} <DeltaTag pct={deltaGasto} invertGood /></div></div>
+            <div className={`kpi ${ratioClass(kpis.ratioPct)}`}><div className="label">Gasto de personal</div><div className="value">{fmtMoney(kpis.gastoTotal)}</div><div className="ctx">{fmtPeriodoLabel(periodo)} <DeltaTag pct={deltaGasto} invertGood /></div></div>
             <div className="kpi"><div className="label">Venta</div><div className="value">{fmtMoney(kpis.ventaTotal)}</div><div className="ctx">tiendas con venta cruzada <DeltaTag pct={deltaVenta} /></div></div>
             <div className={`kpi ${ratioClass(kpis.ratioPct)}`}><div className="label">% Gasto/Venta</div><div className="value">{kpis.ratioPct != null ? `${kpis.ratioPct}%` : '—'}</div><div className="ctx">consolidado del filtro</div></div>
             <div className="kpi action"><div className="label">Sin venta cruzada</div><div className="value">{kpis.nTiendasSinVenta}</div><div className="ctx">tiendas a resolver con finanzas</div></div>
             <div className="kpi"><div className="label">Tiendas</div><div className="value">{kpis.nTiendas}</div><div className="ctx">en este filtro</div></div>
-            <div className="kpi"><div className="label">Colaboradores (HC)</div><div className="value">{kpis.hcTotal.toLocaleString()}</div><div className="ctx">{fmtPeriodo(periodo)} <DeltaTag pct={deltaHc} /></div></div>
-            <div className="kpi"><div className="label">Venta / m²</div><div className="value">{fmtMoney(ventaPorM2Consolidado)}</div><div className="ctx">{fmtPeriodo(periodo)} · agregado del filtro</div></div>
+            <div className="kpi"><div className="label">Colaboradores (HC)</div><div className="value">{kpis.hcTotal.toLocaleString()}</div><div className="ctx">{fmtPeriodoLabel(periodo)} <DeltaTag pct={deltaHc} /></div></div>
+            <div className="kpi"><div className="label">Venta / m²</div><div className="value">{fmtMoney(ventaPorM2Consolidado)}</div><div className="ctx">{fmtPeriodoLabel(periodo)} · agregado del filtro</div></div>
             <div className="kpi"><div className="label">Venta / HC</div><div className="value">{fmtMoney(ventaPorHcConsolidado)}</div><div className="ctx">por colaborador</div></div>
           </div>
 
@@ -449,7 +485,7 @@ export default function GastoVentaDashboard() {
 
             <div className="card">
               <h2>Gasto por categoría</h2>
-              <div className="desc">{fmtPeriodo(periodo)} — todas las tiendas</div>
+              <div className="desc">{fmtPeriodoLabel(periodo)} — todas las tiendas</div>
               {rubroTotales.map((r) => (
                 <div className="area-row" key={r.categoria}>
                   <div className="area-name">{r.categoria}</div>
@@ -461,7 +497,7 @@ export default function GastoVentaDashboard() {
 
             <div className="card">
               <h2>Gasto por provincia</h2>
-              <div className="desc">Top {provinciaRanking.length} — {fmtPeriodo(periodo)}</div>
+              <div className="desc">Top {provinciaRanking.length} — {fmtPeriodoLabel(periodo)}</div>
               {provinciaRanking.map((p) => (
                 <div className="area-row" key={p.provincia}>
                   <div className="area-name">{p.provincia}</div>
