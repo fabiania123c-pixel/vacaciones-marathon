@@ -34,6 +34,25 @@ function fmtPeriodoLabel(p) {
   return fmtPeriodo(p)
 }
 
+// Lee el histórico completo de una tienda (lo que ya trae getEvolucionPorTienda)
+// y explica en una frase POR QUÉ le falta venta cruzada: si nunca la tuvo (tema
+// estructural, ej. marca sin integración) o si la tuvo antes y dejó de reportar
+// (bache puntual a revisar). Mismo criterio usado en la tarjeta "Sin venta
+// cruzada" del consolidado y en la ficha de tienda.
+function diagnosticoSinVenta(serieHistorica) {
+  if (!serieHistorica || serieHistorica.length === 0) return 'Sin histórico suficiente todavía.'
+  const total = serieHistorica.length
+  const conVenta = serieHistorica.filter((s) => s.venta != null)
+  if (total <= 2) {
+    return `Solo ${total} mes(es) cargado(s) — probablemente es una tienda nueva y todavía no se integró su venta cruzada.`
+  }
+  if (conVenta.length === 0) {
+    return `Nunca ha tenido venta cruzada en los ${total} meses cargados — parece un tema estructural (ej. marca/canal no conectado al sistema de venta), no un bache puntual.`
+  }
+  const ultima = conVenta[conVenta.length - 1]
+  return `Sí tuvo venta cruzada antes (última vez: ${fmtPeriodo(ultima.periodo)}) — dejó de reportar, vale la pena preguntar puntualmente qué cambió.`
+}
+
 // Umbral de alerta para el ratio Gasto/Venta — mismo criterio en tarjetas,
 // ranking y tabla de detalle.
 function ratioClass(pct) {
@@ -74,6 +93,9 @@ export default function GastoVentaDashboard() {
   const [provinciaFilter, setProvinciaFilter] = useState('')
   const [tipoFilter, setTipoFilter] = useState('')
   const [tiendaFilter, setTiendaFilter] = useState('')
+  const [sinVentaAbierto, setSinVentaAbierto] = useState(false)
+  const [sinVentaDiag, setSinVentaDiag] = useState({}) // tienda_id -> texto del diagnóstico
+  const [sinVentaCargando, setSinVentaCargando] = useState(false)
 
   async function load() {
     setLoading(true)
@@ -161,6 +183,28 @@ export default function GastoVentaDashboard() {
 
   const kpis = useMemo(() => buildKpis(filteredResumen), [filteredResumen])
   const ranking = useMemo(() => buildRanking(filteredResumen, 12), [filteredResumen])
+  const tiendasSinVenta = useMemo(() => filteredResumen.filter((r) => r.venta == null), [filteredResumen])
+
+  // Al abrir la tarjeta "Sin venta cruzada" pedimos, SOLO para esas tiendas,
+  // su histórico completo (getEvolucionPorTienda, ya filtrado por tienda_id —
+  // nunca más de ~20 filas, no choca con el límite de Supabase) y armamos el
+  // diagnóstico de por qué le falta. Se guarda en caché por tienda_id así no
+  // se vuelve a pedir si cierras y abres el panel de nuevo.
+  async function toggleSinVenta() {
+    const next = !sinVentaAbierto
+    setSinVentaAbierto(next)
+    if (!next) return
+    const pendientes = tiendasSinVenta.filter((t) => !sinVentaDiag[t.id])
+    if (pendientes.length === 0) return
+    setSinVentaCargando(true)
+    const series = await Promise.all(pendientes.map((t) => getEvolucionPorTienda(t.id)))
+    setSinVentaDiag((prev) => {
+      const copia = { ...prev }
+      pendientes.forEach((t, i) => { copia[t.id] = diagnosticoSinVenta(series[i]) })
+      return copia
+    })
+    setSinVentaCargando(false)
+  }
   const evolucion = tiendaFilter ? evolucionTienda : evolucionConsolidada
   const deltaGasto = useMemo(() => deltaVsAnterior(evolucion, periodo, 'gasto'), [evolucion, periodo])
   const deltaVenta = useMemo(() => deltaVsAnterior(evolucion, periodo, 'venta'), [evolucion, periodo])
@@ -261,13 +305,24 @@ export default function GastoVentaDashboard() {
       <div className="filters">
         <div className="filter-pill">
           Período:
-          <select className="filter-select" value={periodo} onChange={(e) => cambiarPeriodo(e.target.value)}>
-            <optgroup label="Meses">
-              {periodoOptions.map((p) => <option key={p} value={p}>{fmtPeriodo(p)}</option>)}
-            </optgroup>
-            <optgroup label="Años completos">
-              {yearOptions.map((y) => <option key={`ANUAL-${y}`} value={`ANUAL-${y}`}>Todo {y}</option>)}
-            </optgroup>
+          <select className="filter-select" value={periodo} onChange={(e) => cambiarPeriodo(e.target.value)} disabled={esVistaAnual}>
+            {esVistaAnual
+              ? <option value={periodo}>{fmtPeriodoLabel(periodo)}</option>
+              : periodoOptions.map((p) => <option key={p} value={p}>{fmtPeriodo(p)}</option>)}
+          </select>
+        </div>
+        <div className="filter-pill">
+          Año:
+          <select
+            className="filter-select"
+            value={esVistaAnual ? periodo.slice(6) : ''}
+            onChange={(e) => {
+              const anio = e.target.value
+              cambiarPeriodo(anio ? `ANUAL-${anio}` : periodoOptions[0])
+            }}
+          >
+            <option value="">Ver por mes</option>
+            {yearOptions.map((y) => <option key={y} value={y}>Todo {y}</option>)}
           </select>
         </div>
         <div className="filter-pill">
@@ -340,6 +395,7 @@ export default function GastoVentaDashboard() {
           {ficha.venta == null && (
             <div className="card" style={{ marginBottom: 20, borderColor: 'var(--crit)' }}>
               <div style={{ color: 'var(--crit)' }}>Esta tienda no tiene venta cruzada este período — los ratios de arriba no se pueden calcular. Revisar con finanzas.</div>
+              <div className="desc" style={{ marginTop: 6 }}>{diagnosticoSinVenta(evolucionTienda)}</div>
             </div>
           )}
 
@@ -434,12 +490,44 @@ export default function GastoVentaDashboard() {
             <div className={`kpi ${ratioClass(kpis.ratioPct)}`}><div className="label">Gasto de personal</div><div className="value">{fmtMoney(kpis.gastoTotal)}</div><div className="ctx">{fmtPeriodoLabel(periodo)} <DeltaTag pct={deltaGasto} invertGood /></div></div>
             <div className="kpi"><div className="label">Venta</div><div className="value">{fmtMoney(kpis.ventaTotal)}</div><div className="ctx">tiendas con venta cruzada <DeltaTag pct={deltaVenta} /></div></div>
             <div className={`kpi ${ratioClass(kpis.ratioPct)}`}><div className="label">% Gasto/Venta</div><div className="value">{kpis.ratioPct != null ? `${kpis.ratioPct}%` : '—'}</div><div className="ctx">consolidado del filtro</div></div>
-            <div className="kpi action"><div className="label">Sin venta cruzada</div><div className="value">{kpis.nTiendasSinVenta}</div><div className="ctx">tiendas a resolver con finanzas</div></div>
+            <div
+              className="kpi action"
+              onClick={toggleSinVenta}
+              style={{ cursor: kpis.nTiendasSinVenta > 0 ? 'pointer' : 'default' }}
+              title={kpis.nTiendasSinVenta > 0 ? 'Click para ver cuáles y por qué' : undefined}
+            >
+              <div className="label">Sin venta cruzada</div>
+              <div className="value">{kpis.nTiendasSinVenta}</div>
+              <div className="ctx">{kpis.nTiendasSinVenta > 0 ? (sinVentaAbierto ? '▲ ocultar detalle' : '▼ ver cuáles y por qué') : 'ninguna en este filtro'}</div>
+            </div>
             <div className="kpi"><div className="label">Tiendas</div><div className="value">{kpis.nTiendas}</div><div className="ctx">en este filtro</div></div>
             <div className="kpi"><div className="label">Colaboradores (HC)</div><div className="value">{kpis.hcTotal.toLocaleString()}</div><div className="ctx">{fmtPeriodoLabel(periodo)} <DeltaTag pct={deltaHc} /></div></div>
             <div className="kpi"><div className="label">Venta / m²</div><div className="value">{fmtMoney(ventaPorM2Consolidado)}</div><div className="ctx">{fmtPeriodoLabel(periodo)} · agregado del filtro</div></div>
             <div className="kpi"><div className="label">Venta / HC</div><div className="value">{fmtMoney(ventaPorHcConsolidado)}</div><div className="ctx">por colaborador</div></div>
           </div>
+
+          {sinVentaAbierto && kpis.nTiendasSinVenta > 0 && (
+            <div className="card" style={{ marginBottom: 20, borderColor: 'var(--crit)' }}>
+              <h2>Tiendas sin venta cruzada — {fmtPeriodoLabel(periodo)}</h2>
+              <div className="desc">Por qué a cada una le falta la venta, según su histórico</div>
+              {sinVentaCargando && <div className="desc">Revisando histórico…</div>}
+              {tiendasSinVenta.map((t) => (
+                <div key={t.id} className="priority-item" onClick={() => setTiendaFilter(t.nombre)} style={{ cursor: 'pointer' }}>
+                  <div className="p-left">
+                    <div>
+                      <div className="p-name">{t.nombre}</div>
+                      <div className="p-meta">{t.provincia || '—'} · HC {t.hc} · {fmtMoney(t.gastoTotal)} de gasto</div>
+                    </div>
+                  </div>
+                  <div className="p-right">
+                    <div className="p-saldo" style={{ color: 'var(--text-mute)', fontWeight: 400, fontSize: 12.5, textAlign: 'right', maxWidth: 340 }}>
+                      {sinVentaDiag[t.id] || (sinVentaCargando ? '…' : 'Click para ver ficha completa')}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
 
           <div className="card" style={{ marginBottom: 20 }}>
             <h2>Evolución mensual — Gasto vs Venta</h2>
