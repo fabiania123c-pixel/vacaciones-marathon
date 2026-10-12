@@ -3,7 +3,7 @@ import * as XLSX from 'xlsx'
 function norm(s) {
   if (!s) return ''
   return s.toString().toUpperCase().trim()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
     .replace(/\s+/g, ' ')
 }
 
@@ -76,6 +76,12 @@ function parseCorteSheet(sheetName, ws, lookup, lookupSorted) {
     if (n.startsWith('TOTAL DIAS') && col.totalProgramado === undefined) col.totalProgramado = i
     if (n.startsWith('SALDO DIAS') && col.saldoProyectado === undefined) col.saldoProyectado = i
     if (n.startsWith('BP') && col.bp === undefined) col.bp = i
+    // Antes nunca se detectaba esta columna: col.diferencia quedaba siempre
+    // undefined y por eso el campo "diferencia" de cada empleado salía
+    // siempre null (confirmado comparando snapshots viejos, que sí traían
+    // valor, contra los de sept/oct 2026, todos en null). Ambas hojas
+    // ("Real" y "KPI'S") traen una columna "Diferencia" con dato real.
+    if (n.startsWith('DIFERENCIA') && col.diferencia === undefined) col.diferencia = i
   })
 
   const blocks = []
@@ -165,6 +171,70 @@ function parseRatioBlock(ws) {
   return { pctTomado, pctPendiente: 1 - pctTomado }
 }
 
+// Busca el bloque "% VACACIONES TOMADAS" en TODAS las hojas de corte que
+// trajo el Excel (no solo en la que "ganó" como más reciente por fecha de
+// encabezado). Antes, si el header de otra pestaña (ej. "KPI'S") se
+// actualizaba a una fecha más nueva que la pestaña "Real" —que es la que de
+// verdad trae el bloque de ratio—, el sistema se ponía a buscar en la hoja
+// equivocada y el ratio se perdía aunque el Excel sí lo trajera en alguna
+// otra pestaña. Esto pasó en octubre 2026: "KPI'S" pasó a tener fecha más
+// reciente que "Real" y el ratio (que vive en "Real") dejó de leerse.
+// Probamos las hojas de la más reciente a la más vieja y usamos la primera
+// que efectivamente tenga el bloque.
+function buscarRatioEnTodasLasHojas(cortes, sheetsByName) {
+  const ordenadas = [...cortes].sort((a, b) => {
+    if (a.corteDate && b.corteDate) return b.corteDate.localeCompare(a.corteDate)
+    return 0
+  })
+  for (const c of ordenadas) {
+    const ratio = parseRatioBlock(sheetsByName[c.sheetName])
+    if (ratio) return ratio
+  }
+  return null
+}
+
+// Respaldo cuando ninguna hoja trae la etiqueta "% VACACIONES TOMADAS" junto
+// a su valor (pasa seguido: el título en H263 se pierde pero el número en
+// J263 se mantiene). Confirmado con el equipo que arma el Excel: el dato
+// real SIEMPRE vive en la fila 263, columna J, de la pestaña
+// "Cronograma 2026 KPI'S" — leemos esa celda fija como último recurso.
+function parseRatioFijoKPIs(sheetsByName) {
+  const nombreHoja = Object.keys(sheetsByName).find((n) => /KPI/i.test(n))
+  if (!nombreHoja) return null
+  const rows = XLSX.utils.sheet_to_json(sheetsByName[nombreHoja], { header: 1, raw: true, defval: null })
+  const fila263 = rows[262] // fila 263 en Excel (1-indexed) = índice 262
+  if (!fila263) return null
+  const valor = fila263[9] // columna J = índice 9
+  if (typeof valor !== 'number' || valor < 0 || valor > 100) return null
+  const pctTomado = valor / 100
+  return { pctTomado, pctPendiente: 1 - pctTomado }
+}
+
+// Elige qué hoja manda para los datos de empleados (saldo, días tomados,
+// saldo proyectado, diferencia). ANTES esto se decidía comparando la fecha
+// que el código extraía del texto del encabezado de cada hoja, y la hoja
+// con la fecha "más nueva" ganaba — pero esa fecha es frágil: en octubre
+// 2026 el encabezado de "KPI'S" quedó con una fecha más reciente que el de
+// "Real" y el sistema empezó a guardar los números de KPI'S en vez de Real,
+// sin que nadie lo pidiera. Al comparar las dos hojas del archivo de
+// octubre, 186 de 253 empleados (73%) tenían saldo/días-tomados DISTINTOS
+// entre una y otra.
+//
+// Confirmado: "Cronograma 2026 Real" es la hoja autoritativa para estos
+// datos. Por eso ahora la buscamos siempre por nombre primero, y solo si el
+// archivo no trae ninguna hoja "Real" (caso raro / futuro cambio de
+// nombre) caemos al criterio viejo de fecha más reciente, para no romper el
+// parseo por completo.
+function elegirHojaEmpleados(cortes) {
+  const real = cortes.find((c) => /real/i.test(c.sheetName))
+  if (real) return real
+  const ordenadas = [...cortes].sort((a, b) => {
+    if (a.corteDate && b.corteDate) return a.corteDate.localeCompare(b.corteDate)
+    return 0
+  })
+  return ordenadas[ordenadas.length - 1]
+}
+
 export async function parseVacacionesFile(file) {
   const buf = await file.arrayBuffer()
   const wb = XLSX.read(buf, { type: 'array', cellDates: true })
@@ -180,12 +250,8 @@ export async function parseVacacionesFile(file) {
     throw new Error('No encontré ninguna hoja con la estructura esperada (columna "NOMBRE Y APELLIDO").')
   }
 
-  cortes.sort((a, b) => {
-    if (a.corteDate && b.corteDate) return a.corteDate.localeCompare(b.corteDate)
-    return 0
-  })
-  const latest = cortes[cortes.length - 1]
-  const ratio = parseRatioBlock(wb.Sheets[latest.sheetName])
+  const latest = elegirHojaEmpleados(cortes)
+  const ratio = buscarRatioEnTodasLasHojas(cortes, wb.Sheets) || parseRatioFijoKPIs(wb.Sheets)
 
   return {
     fechaCorte: latest.corteDate || new Date().toISOString().slice(0, 10),
