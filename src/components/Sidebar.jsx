@@ -7,6 +7,7 @@ const ITEMS = [
   { label: 'Únete a Nuestro Equipo', icon: '🤝', kind: 'external', href: 'https://uneteanuestroequipo.ec.aseyco.com/login' },
   { label: 'Dashboard de Control', icon: '📊', kind: 'external', href: 'https://us-east-1.quicksight.aws.amazon.com/sn/account/marathonsports/dashboards/cbd0544d-43c8-4595-952f-d965c41cbb05/views/d98fb1da-2469-4275-ba9a-6a6a78643b94' },
   { label: 'Generación de Archivo Temporada', icon: '🗂️', kind: 'external', href: 'https://autollenado-medidas.vercel.app/' },
+  { label: 'Horas a Compensar', icon: '⏱️', kind: 'external', href: 'https://us-east-1.quicksight.aws.amazon.com/sn/account/marathonsports/accounts/852972719767/dashboards/65dbe230-fc7c-4cf9-931e-6205570c3d64' },
 ]
 
 export default function Sidebar() {
